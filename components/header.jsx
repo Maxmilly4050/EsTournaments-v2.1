@@ -17,7 +17,9 @@ import { useRouter } from "next/navigation"
 import { useTransition, useEffect, useState, useRef } from "react"
 import { NotificationCenter } from "./notification-center"
 
-const ADMIN_USER_IDS = []
+const ADMIN_USER_IDS = process.env.NEXT_PUBLIC_ADMIN_USER_IDS
+  ? process.env.NEXT_PUBLIC_ADMIN_USER_IDS.split(",").map((id) => id.trim())
+  : []
 
 const SignOutButton = () => {
   const router = useRouter()
@@ -145,8 +147,7 @@ export function Header() {
           // Simple admin check
           const adminCheck =
             ADMIN_USER_IDS.includes(session.user.id) ||
-            session.user.email?.endsWith("@admin.com") ||
-            process.env.NODE_ENV === "development"
+            session.user.email?.endsWith("@admin.com")
           setIsAdmin(adminCheck)
         } else {
           setUser(null)
@@ -185,8 +186,7 @@ export function Header() {
       if (currentUser) {
         const adminCheck =
           ADMIN_USER_IDS.includes(currentUser.id) ||
-          currentUser.email?.endsWith("@admin.com") ||
-          process.env.NODE_ENV === "development"
+          currentUser.email?.endsWith("@admin.com")
         setIsAdmin(adminCheck)
       } else {
         setIsAdmin(false)
