@@ -63,9 +63,26 @@ export function EmailVerificationDialog({ isOpen, onClose, currentEmail, isEmail
           : "Check your email for the verification link",
       })
     } catch (error) {
+      console.error("[v0] Email verification error:", error)
+
+      let errorTitle = "Error"
+      let errorDescription = error.message
+
+      // Provide user-friendly error messages
+      if (error.message.includes('Email provider not configured')) {
+        errorTitle = "Email Configuration Required"
+        errorDescription = "Email sending is not set up yet. Please contact the administrator to configure the email provider in the Supabase dashboard."
+      } else if (error.message.includes('rate limit')) {
+        errorTitle = "Too Many Requests"
+        errorDescription = "Please wait a few minutes before requesting another verification email."
+      } else if (error.message.includes('Invalid email')) {
+        errorTitle = "Invalid Email"
+        errorDescription = "Please enter a valid email address."
+      }
+
       toast({
-        title: "Error",
-        description: error.message,
+        title: errorTitle,
+        description: errorDescription,
         variant: "destructive",
       })
     } finally {
