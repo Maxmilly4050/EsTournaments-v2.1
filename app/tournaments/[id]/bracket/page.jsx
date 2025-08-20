@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import { TournamentBracket } from "@/components/tournament-bracket"
+import TournamentBracket from "@/components/tournament-bracket"
 import Header from "@/components/header"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"

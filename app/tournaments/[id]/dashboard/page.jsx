@@ -14,13 +14,35 @@ export default function TournamentDashboardPage({ params }) {
   const [disputes, setDisputes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [tournamentId, setTournamentId] = useState(null)
+
+  // Handle async params resolution
+  useEffect(() => {
+    async function resolveParams() {
+      try {
+        // Handle params as promise in Next.js App Router
+        const resolvedParams = await params
+        const id = resolvedParams.id
+
+        if (id === "create" || isNaN(Number.parseInt(id))) {
+          router.push("/tournaments")
+          return
+        }
+
+        setTournamentId(id)
+      } catch (error) {
+        console.error("[v0] Failed to resolve params:", error)
+        router.push("/tournaments")
+      }
+    }
+
+    resolveParams()
+  }, [params, router])
 
   useEffect(() => {
+    if (!tournamentId) return
+
     async function loadDashboardData() {
-      if (params.id === "create" || isNaN(Number.parseInt(params.id))) {
-        router.push("/tournaments")
-        return
-      }
 
       const supabase = createClient()
 
@@ -43,8 +65,8 @@ export default function TournamentDashboardPage({ params }) {
         if (tableCheckError && tableCheckError.message.includes("does not exist")) {
           // Tables don't exist, use fallback data
           setTournament({
-            id: params.id,
-            title: `Tournament #${params.id}`,
+            id: tournamentId,
+            title: `Tournament #${tournamentId}`,
             game: "Sample Game",
             organizer_id: currentUser.id,
             status: "ongoing",
@@ -70,7 +92,7 @@ export default function TournamentDashboardPage({ params }) {
                 player2:player2_id (username, full_name)
               )
             `)
-            .eq("id", params.id)
+            .eq("id", tournamentId)
             .single()
 
           if (tournamentError) {
@@ -80,7 +102,7 @@ export default function TournamentDashboardPage({ params }) {
 
           if (tournamentData.organizer_id !== currentUser.id) {
             console.log("[v0] User is not organizer, redirecting to tournament page")
-            router.push(`/tournaments/${params.id}`)
+            router.push(`/tournaments/${tournamentId}`)
             return
           }
 
@@ -138,7 +160,7 @@ export default function TournamentDashboardPage({ params }) {
     }
 
     loadDashboardData()
-  }, [params.id, router])
+  }, [tournamentId, router])
 
   if (loading) {
     return (

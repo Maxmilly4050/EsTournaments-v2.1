@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import Link from "next/link"
-import { TournamentBracket } from "./tournament-bracket"
+import TournamentBracket from "./tournament-bracket"
 
 export function TournamentDetails({ tournament, user, isParticipant }) {
   const router = useRouter()
@@ -152,7 +152,11 @@ export function TournamentDetails({ tournament, user, isParticipant }) {
           </Card>
 
           {/* Bracket Preview */}
-          <TournamentBracket tournament={tournament} currentUser={user} />
+          <TournamentBracket
+            tournamentId={tournament.id}
+            tournamentType={tournament.tournament_type}
+            isOrganizer={isOrganizer}
+          />
 
           {/* Participants */}
           <Card className="bg-slate-800 border-slate-700">

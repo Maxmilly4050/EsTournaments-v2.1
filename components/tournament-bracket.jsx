@@ -1,677 +1,626 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { Button } from "@/components/ui/button"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Trophy, Play, Users, Award, Upload } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { supabase } from "@/lib/supabase/client"
-import { useRouter } from "next/navigation"
-import { MatchDetailsModal } from "./match-details-modal"
-import { createTheme, MATCH_STATES } from "@g-loot/react-tournament-brackets"
+import { Trophy, Users, Clock, CheckCircle, XCircle, Upload } from "lucide-react"
 
-const customTheme = createTheme({
-  // Define your custom theme here
-})
-
-export function TournamentBracket({ tournament, isOrganizer, currentUser }) {
-  const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [participants, setParticipants] = useState([])
-  const [selectedMatch, setSelectedMatch] = useState(null)
+export default function TournamentBracket({ tournamentId, tournamentType, isOrganizer = false }) {
   const [matches, setMatches] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedMatch, setSelectedMatch] = useState(null)
+  const [reportingResult, setReportingResult] = useState(false)
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [resultForm, setResultForm] = useState({
+    winner_id: '',
+    player1_score: 0,
+    player2_score: 0,
+    screenshot_url: '',
+    notes: ''
+  })
 
   useEffect(() => {
-    const fetchParticipants = async () => {
-      if (tournament.tournament_participants) {
-        setParticipants(tournament.tournament_participants)
-      }
-    }
-    fetchParticipants()
-  }, [tournament])
+    fetchMatches()
+  }, [tournamentId])
 
+  // Check user authentication with session management
   useEffect(() => {
-    const fetchMatches = async () => {
-      const { data, error } = await supabase.from("matches").select("*").eq("tournament_id", tournament.id)
+    async function checkAuth() {
+      try {
+        // First try to get current session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-      if (error) {
-        console.error("Error fetching matches:", error)
-        return
-      }
-
-      setMatches(data)
-    }
-
-    if (tournament.id) {
-      fetchMatches()
-    }
-  }, [tournament.id])
-
-  const setMatchWinner = async (matchId, winnerId) => {
-    if (!isOrganizer) return
-
-    try {
-      // Update the match with winner
-      const { error } = await supabase
-        .from("matches")
-        .update({
-          winner_id: winnerId,
-          status: "completed",
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", matchId)
-
-      if (error) {
-        console.error("Error setting winner:", error)
-        alert("Failed to set winner")
-        return
-      }
-
-      // Call bracket progression API to advance winner
-      const response = await fetch("/api/bracket/advance-winner", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId, winnerId }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to advance winner")
-      }
-
-      const result = await response.json()
-
-      if (result.tournamentComplete) {
-        alert(`🏆 Tournament Complete! Winner: ${getPlayerName(result.winner)}`)
-      }
-
-      router.refresh()
-    } catch (error) {
-      console.error("Error:", error)
-      alert("An unexpected error occurred")
-    }
-  }
-
-  useEffect(() => {
-    if (!tournament.id) return
-
-    // Subscribe to match updates
-    const matchSubscription = supabase
-      .channel(`tournament-${tournament.id}-matches`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "matches",
-          filter: `tournament_id=eq.${tournament.id}`,
-        },
-        (payload) => {
-          console.log("Match updated:", payload)
-          router.refresh()
-        },
-      )
-      .subscribe()
-
-    return () => {
-      matchSubscription.unsubscribe()
-    }
-  }, [tournament.id, router])
-
-  const generateBracket = async () => {
-    if (!isOrganizer) return
-
-    setLoading(true)
-    try {
-      // First, clear existing matches
-      await supabase.from("matches").delete().eq("tournament_id", tournament.id)
-
-      const tournamentParticipants = participants
-      const numParticipants = tournamentParticipants.length
-
-      if (numParticipants < 2) {
-        alert("Need at least 2 participants to generate bracket")
-        setLoading(false)
-        return
-      }
-
-      // Shuffle participants for random seeding
-      const shuffledParticipants = [...tournamentParticipants].sort(() => Math.random() - 0.5)
-
-      // Calculate number of rounds needed
-      const numRounds = Math.ceil(Math.log2(numParticipants))
-      const matches = []
-
-      // Generate first round matches
-      for (let i = 0; i < shuffledParticipants.length; i += 2) {
-        const player1 = shuffledParticipants[i]
-        const player2 = shuffledParticipants[i + 1] || null
-
-        matches.push({
-          tournament_id: tournament.id,
-          round: 1,
-          match_number: Math.floor(i / 2) + 1,
-          player1_id: player1.user_id,
-          player2_id: player2?.user_id || null,
-          status: player2 ? "pending" : "completed",
-          winner_id: player2 ? null : player1.user_id, // Auto-advance if odd number
-        })
-      }
-
-      // Generate subsequent rounds (empty matches to be filled as tournament progresses)
-      let currentRoundMatches = Math.ceil(shuffledParticipants.length / 2)
-      for (let round = 2; round <= numRounds; round++) {
-        const nextRoundMatches = Math.ceil(currentRoundMatches / 2)
-        for (let match = 1; match <= nextRoundMatches; match++) {
-          matches.push({
-            tournament_id: tournament.id,
-            round,
-            match_number: match,
-            player1_id: null,
-            player2_id: null,
-            status: "pending",
-            winner_id: null,
-          })
+        if (sessionError) {
+          console.error('Session error:', sessionError)
+          setUser(null)
+        } else if (!session) {
+          console.log('No active session found')
+          setUser(null)
+        } else {
+          // Session exists, get user data
+          const { data: { user }, error: userError } = await supabase.auth.getUser()
+          if (userError) {
+            console.error('User error:', userError)
+            // Try to refresh session if user fetch fails
+            const { error: refreshError } = await supabase.auth.refreshSession()
+            if (refreshError) {
+              console.error('Session refresh failed:', refreshError)
+              setUser(null)
+            } else {
+              // Retry getting user after refresh
+              const { data: { user: refreshedUser } } = await supabase.auth.getUser()
+              setUser(refreshedUser)
+            }
+          } else {
+            setUser(user)
+          }
         }
-        currentRoundMatches = nextRoundMatches
+      } catch (error) {
+        console.error('Error checking auth:', error)
+        setUser(null)
+      } finally {
+        setAuthLoading(false)
+      }
+    }
+
+    checkAuth()
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event)
+
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+        // Re-check authentication when auth state changes
+        const { data: { user } } = await supabase.auth.getUser()
+        setUser(user)
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const fetchMatches = async () => {
+    try {
+      // Add safety check for tournamentId
+      if (!tournamentId) {
+        console.error('Tournament ID is required to fetch matches')
+        setMatches([])
+        return
       }
 
-      const { error } = await supabase.from("matches").insert(matches)
+      const { data, error } = await supabase
+        .from('matches')
+        .select(`
+          *,
+          player1:profiles!player1_id (
+            id,
+            username,
+            full_name
+          ),
+          player2:profiles!player2_id (
+            id,
+            username,
+            full_name
+          ),
+          winner:profiles!winner_id (
+            id,
+            username,
+            full_name
+          )
+        `)
+        .eq('tournament_id', tournamentId)
+        .order('round')
+        .order('match_number')
 
       if (error) {
-        console.error("Error generating bracket:", error)
-        alert("Failed to generate bracket")
-      } else {
-        // Update tournament status to ongoing
-        await supabase.from("tournaments").update({ status: "ongoing" }).eq("id", tournament.id)
-        router.refresh()
+        console.error('Supabase error details:', error)
+        throw error
       }
+
+      setMatches(data || [])
+      console.log('[v0] Fetched matches successfully:', data?.length || 0, 'matches')
     } catch (error) {
-      console.error("Error:", error)
-      alert("An unexpected error occurred")
+      console.error('Error fetching matches:', error)
+      // Provide more specific error information
+      if (error.message) {
+        console.error('Error message:', error.message)
+      }
+      if (error.details) {
+        console.error('Error details:', error.details)
+      }
+      // Set empty matches array on error to prevent UI issues
+      setMatches([])
     } finally {
       setLoading(false)
     }
   }
 
-  const handleMatchClick = (match) => {
-    if (match.player1_id && match.player2_id) {
-      setSelectedMatch(match)
-    }
-  }
+  const handleReportResult = async () => {
+    try {
+      setReportingResult(true)
 
-  const handleResultSubmitted = () => {
-    setSelectedMatch(null)
-    router.refresh()
-  }
+      // Check user authentication before making API call
+      if (!user) {
+        alert('You must be logged in to report match results. Please log in and try again.')
+        return
+      }
 
-  const demoBracket = useMemo(() => {
-    const demoParticipants = [
-      "Zombie",
-      "NK To",
-      "Gen.G",
-      "KillDo",
-      "AxSepc",
-      "We a L",
-      "D-Gen",
-      "Nh-Ho",
-      "FGV",
-      "Huy's",
-      "ATPro",
-      "D-Gen",
-      "Son's",
-      "Clown's",
-      "545TV",
-      "Loser",
-    ].slice(0, participants.length || 8)
+      // Verify user is participant or organizer
+      const isParticipant = selectedMatch.player1_id === user.id || selectedMatch.player2_id === user.id
+      if (!isParticipant && !isOrganizer) {
+        alert('You can only report results for matches you are participating in.')
+        return
+      }
 
-    const demoMatches = []
-    let matchId = 1000
+      // Enhanced session validation with retry logic
+      try {
+        console.log('Validating session before API call...')
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-    // Round 1 matches with fixed random values
-    for (let i = 0; i < demoParticipants.length; i += 2) {
-      const player1 = demoParticipants[i]
-      const player2 = demoParticipants[i + 1]
-      const player1Score = (i % 3) + 1 // Fixed scores to prevent randomness
-      const player2Score = ((i + 1) % 3) + 1
-      const winnerId = player1Score > player2Score ? `demo-${i}` : `demo-${i + 1}`
+        // Check if session exists and is still valid
+        if (session && !sessionError) {
+          const expiresAt = new Date(session.expires_at * 1000)
+          const now = new Date()
+          const timeUntilExpiry = expiresAt.getTime() - now.getTime()
 
-      demoMatches.push({
-        id: matchId++,
-        tournament_id: tournament.id,
-        round: 1,
-        match_number: Math.floor(i / 2) + 1,
-        player1_id: `demo-${i}`,
-        player2_id: player2 ? `demo-${i + 1}` : null,
-        player1_score: player1Score,
-        player2_score: player2 ? player2Score : 0,
-        status: "completed",
-        winner_id: player2 ? winnerId : `demo-${i}`,
-        player1: { username: player1 },
-        player2: player2 ? { username: player2 } : null,
+          // If session expires within 5 minutes, proactively refresh
+          if (timeUntilExpiry > 5 * 60 * 1000) {
+            console.log('Session is valid, proceeding with API call')
+          } else {
+            console.log('Session expires soon, attempting refresh...')
+            await attemptSessionRefresh()
+          }
+        } else {
+          console.log('No valid session found, attempting refresh...')
+          await attemptSessionRefresh()
+        }
+      } catch (sessionValidationError) {
+        console.error('Session validation failed:', sessionValidationError)
+        handleSessionFailure()
+        return
+      }
+
+      // Helper function to attempt session refresh with retry logic
+      async function attemptSessionRefresh(retryCount = 0) {
+        const maxRetries = 2
+
+        try {
+          console.log(`Session refresh attempt ${retryCount + 1}/${maxRetries + 1}`)
+          const { error: refreshError } = await supabase.auth.refreshSession()
+
+          if (refreshError) {
+            if (retryCount < maxRetries) {
+              console.log('Refresh failed, retrying in 1 second...')
+              await new Promise(resolve => setTimeout(resolve, 1000))
+              return attemptSessionRefresh(retryCount + 1)
+            } else {
+              throw new Error('Session refresh failed after retries')
+            }
+          } else {
+            console.log('Session refreshed successfully')
+          }
+        } catch (refreshError) {
+          console.error('Session refresh error:', refreshError)
+          throw refreshError
+        }
+      }
+
+      // Helper function to handle session failure gracefully
+      function handleSessionFailure() {
+        console.log('All session recovery attempts failed')
+        if (confirm('Your session has expired and could not be refreshed automatically. Would you like to refresh the page to log in again?')) {
+          window.location.reload()
+        }
+      }
+
+      const response = await fetch(`/api/tournaments/matches/${selectedMatch.id}/report-result`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify(resultForm)
       })
-    }
 
-    // Generate subsequent rounds with fixed data
-    let currentRoundSize = Math.ceil(demoParticipants.length / 2)
-    let round = 2
-    let playerIndex = 0
+      const result = await response.json()
 
-    while (currentRoundSize > 1) {
-      const nextRoundSize = Math.ceil(currentRoundSize / 2)
-
-      for (let i = 0; i < nextRoundSize; i++) {
-        const player1Name = demoParticipants[playerIndex % demoParticipants.length]
-        const player2Name = demoParticipants[(playerIndex + 1) % demoParticipants.length]
-        const player1Score = (playerIndex % 3) + 1
-        const player2Score = ((playerIndex + 1) % 3) + 1
-        const winnerId = player1Score > player2Score ? `demo-r${round}-${i * 2}` : `demo-r${round}-${i * 2 + 1}`
-
-        demoMatches.push({
-          id: matchId++,
-          tournament_id: tournament.id,
-          round: round,
-          match_number: i + 1,
-          player1_id: `demo-r${round}-${i * 2}`,
-          player2_id: `demo-r${round}-${i * 2 + 1}`,
-          player1_score: player1Score,
-          player2_score: player2Score,
-          status: round === Math.ceil(Math.log2(demoParticipants.length)) ? "pending" : "completed",
-          winner_id: round === Math.ceil(Math.log2(demoParticipants.length)) ? null : winnerId,
-          player1: { username: player1Name },
-          player2: { username: player2Name }, // Declare player2 here
+      if (result.success) {
+        alert(result.message)
+        fetchMatches() // Refresh matches
+        setSelectedMatch(null)
+        setResultForm({
+          winner_id: '',
+          player1_score: 0,
+          player2_score: 0,
+          screenshot_url: '',
+          notes: ''
         })
-
-        playerIndex += 2
-      }
-
-      currentRoundSize = nextRoundSize
-      round++
-    }
-
-    return demoMatches
-  }, [participants.length, tournament.id])
-
-  const displayMatches = matches.length > 0 ? matches : demoBracket
-  const displayRounds = displayMatches.reduce((acc, match) => {
-    if (!acc[match.round]) acc[match.round] = []
-    acc[match.round].push(match)
-    return acc
-  }, {})
-  const displayMaxRound = Math.max(...Object.keys(displayRounds).map(Number), 0)
-
-  const getPlayerName = (playerId) => {
-    if (!playerId) return "TBD"
-
-    // Handle demo player IDs
-    if (typeof playerId === "string" && playerId.startsWith("demo-")) {
-      const match = displayMatches.find((m) => m.player1_id === playerId || m.player2_id === playerId)
-      if (match) {
-        if (match.player1_id === playerId && match.player1) {
-          return match.player1.username || "Player 1"
-        }
-        if (match.player2_id === playerId && match.player2) {
-          return match.player2.username || "Player 2"
+      } else {
+        // Handle specific authentication errors with improved UX
+        if (result.error === 'Authentication failed' || result.error === 'User not authenticated') {
+          if (confirm('Your session has expired. Would you like to refresh the page to log in again?')) {
+            window.location.reload()
+          }
+        } else if (result.error === 'Insufficient permissions') {
+          alert('You do not have permission to report results for this match.')
+        } else {
+          alert(result.error || 'Failed to report result')
         }
       }
-      return "Demo Player"
+    } catch (error) {
+      console.error('Error reporting result:', error)
+      alert('Failed to report result. Please check your internet connection and try again.')
+    } finally {
+      setReportingResult(false)
     }
-
-    const participant = participants.find((p) => p.user_id === playerId)
-    if (participant?.profiles) {
-      return participant.profiles.username || participant.profiles.full_name || "Unknown Player"
-    }
-
-    // Fallback for match data
-    const match = tournament.matches?.find((m) => m.player1_id === playerId || m.player2_id === playerId)
-    if (match) {
-      if (match.player1_id === playerId && match.player1) {
-        return match.player1.username || match.player1.full_name || "Player 1"
-      }
-      if (match.player2_id === playerId && match.player2) {
-        return match.player2.username || match.player2.full_name || "Player 2"
-      }
-    }
-
-    return "Unknown Player"
   }
 
-  const CustomMatch = ({ match, onMatchClick, onPartyClick }) => {
-    const handleMatchClick = () => {
-      if (
-        match.originalMatch?.player1_id &&
-        match.originalMatch?.player2_id &&
-        match.originalMatch?.status !== "completed"
-      ) {
-        setSelectedMatch(match.originalMatch)
-      }
-    }
-
-    return (
-      <div
-        className={`bg-slate-700 rounded-lg border-2 transition-all duration-200 ${
-          match.originalMatch?.player1_id &&
-          match.originalMatch?.player2_id &&
-          match.originalMatch?.status !== "completed"
-            ? "cursor-pointer hover:border-blue-400 hover:shadow-lg border-slate-600"
-            : "border-slate-600"
-        }`}
-        onClick={handleMatchClick}
-        style={{ width: "200px", minHeight: "80px" }}
-      >
-        {/* Match Header */}
-        <div className="text-xs text-slate-300 text-center p-1 border-b border-slate-600">
-          {match.tournamentRoundText}
-        </div>
-
-        {/* Participants */}
-        {match.participants.map((participant, index) => (
-          <div
-            key={participant.id}
-            className={`flex items-center justify-between p-2 ${
-              index === 0 ? "border-b border-slate-600" : ""
-            } ${participant.isWinner ? "bg-green-600/30" : ""}`}
-          >
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
-                  participant.isWinner
-                    ? "bg-green-500 text-white"
-                    : index === 0
-                      ? "bg-blue-500 text-white"
-                      : "bg-purple-500 text-white"
-                }`}
-              >
-                {participant.name.charAt(0)}
-              </div>
-              <span className="text-white text-sm font-medium truncate">{participant.name}</span>
-            </div>
-            <div className="text-white font-bold text-sm">{participant.resultText}</div>
-          </div>
-        ))}
-
-        {/* Upload indicator */}
-        {match.originalMatch?.player1_id &&
-          match.originalMatch?.player2_id &&
-          match.originalMatch?.status !== "completed" && (
-            <div className="absolute -top-2 -right-2 bg-blue-500 rounded-full p-1">
-              <Upload className="w-3 h-3 text-white" />
-            </div>
-          )}
-      </div>
-    )
-  }
-
-  const ProfessionalBracket = () => {
-    console.log("[v0] ProfessionalBracket rendering, matches.length:", displayMatches.length)
-    if (displayMatches.length === 0) {
-      console.log("[v0] No matches, returning null")
-      return null
-    }
-
-    const bracketMatches = transformMatchesForBracket()
-    console.log("[v0] About to render custom bracket with matches:", bracketMatches.length)
-
-    const rounds = bracketMatches.reduce((acc, match) => {
-      const roundText = match.tournamentRoundText
-      if (!acc[roundText]) acc[roundText] = []
-      acc[roundText].push(match)
-      return acc
-    }, {})
-
-    const roundOrder = ["Round 1", "Round 2", "Quarterfinals", "Semifinals", "Winners' Finals"]
-    const orderedRounds = roundOrder.filter((round) => rounds[round])
-
-    return (
-      <div className="bg-slate-900 rounded-lg p-6 min-h-[600px]">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-white text-2xl font-bold">Tournament Bracket</h3>
-          {matches.length === 0 && (
-            <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-medium">Demo Preview</div>
-          )}
-        </div>
-
-        <div className="overflow-x-auto">
-          <div className="flex gap-8 min-w-max p-4">
-            {orderedRounds.map((roundName, roundIndex) => (
-              <div key={roundName} className="flex flex-col items-center">
-                {/* Round Header */}
-                <div className="bg-slate-700 text-white px-4 py-2 rounded-lg mb-4 font-semibold text-sm">
-                  {roundName}
-                </div>
-
-                {/* Matches in this round */}
-                <div className="flex flex-col gap-4">
-                  {rounds[roundName].map((match) => (
-                    <CustomMatch key={match.id} match={match} onMatchClick={() => {}} onPartyClick={() => {}} />
-                  ))}
-                </div>
-
-                {/* Connector lines to next round */}
-                {roundIndex < orderedRounds.length - 1 && (
-                  <div
-                    className="absolute left-full top-1/2 w-8 h-0.5 bg-slate-600 transform -translate-y-1/2"
-                    style={{ marginLeft: "100px" }}
-                  />
-                )}
-              </div>
-            ))}
-
-            {/* Trophy for winner */}
-            {orderedRounds.length > 0 &&
-              rounds[orderedRounds[orderedRounds.length - 1]][0]?.participants.some((p) => p.isWinner) && (
-                <div className="flex flex-col items-center justify-center">
-                  <Trophy className="w-16 h-16 text-yellow-400 animate-pulse" />
-                  <div className="text-yellow-400 font-bold text-lg mt-2">Winner!</div>
-                </div>
-              )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const transformMatchesForBracket = () => {
-    console.log("[v0] Transforming matches for bracket, total matches:", displayMatches.length)
-    if (!displayMatches.length) {
-      console.log("[v0] No matches found, returning empty array")
-      return []
-    }
-
-    const rounds = displayMatches.reduce((acc, match) => {
-      if (!acc[match.round]) acc[match.round] = []
-      acc[match.round].push(match)
-      return acc
-    }, {})
-
-    console.log("[v0] Organized matches by rounds:", rounds)
-
-    const bracketMatches = []
-    const roundKeys = Object.keys(rounds).sort((a, b) => Number(a) - Number(b))
-
-    roundKeys.forEach((roundNum, roundIndex) => {
-      const roundMatches = rounds[roundNum].sort((a, b) => a.match_number - b.match_number)
-
-      roundMatches.forEach((match, matchIndex) => {
-        const player1Name = getPlayerName(match.player1_id)
-        const player2Name = getPlayerName(match.player2_id)
-
-        const totalRounds = Math.max(...roundKeys.map(Number))
-        let roundName = `Round ${roundNum}`
-
-        if (Number(roundNum) === totalRounds) {
-          roundName = "Winners' Finals"
-        } else if (Number(roundNum) === totalRounds - 1) {
-          roundName = "Semifinals"
-        } else if (Number(roundNum) === totalRounds - 2 && totalRounds > 2) {
-          roundName = "Quarterfinals"
-        } else if (Number(roundNum) === 1) {
-          roundName = "Round 1"
-        } else if (Number(roundNum) === 2 && totalRounds > 3) {
-          roundName = "Round 2"
-        }
-
-        bracketMatches.push({
-          id: match.id,
-          name: `Match ${match.match_number}`,
-          nextMatchId: null,
-          tournamentRoundText: roundName,
-          startTime: match.scheduled_at || new Date().toISOString(),
-          state:
-            match.status === "completed"
-              ? MATCH_STATES.DONE
-              : match.player1_id && match.player2_id
-                ? MATCH_STATES.SCHEDULED
-                : MATCH_STATES.NO_SHOW,
-          participants: [
-            {
-              id: match.player1_id || `placeholder-${match.id}-1`,
-              resultText: match.winner_id === match.player1_id ? "W" : match.player1_score?.toString() || "",
-              isWinner: match.winner_id === match.player1_id,
-              status: match.player1_id ? null : "NO_SHOW",
-              name: player1Name,
-            },
-            {
-              id: match.player2_id || `placeholder-${match.id}-2`,
-              resultText: match.winner_id === match.player2_id ? "W" : match.player2_score?.toString() || "",
-              isWinner: match.winner_id === match.player2_id,
-              status: match.player2_id ? null : "NO_SHOW",
-              name: player2Name,
-            },
-          ],
-          // Store original match data for click handling
-          originalMatch: match,
-        })
-      })
+  const openMatchDialog = (match) => {
+    setSelectedMatch(match)
+    setResultForm({
+      winner_id: '',
+      player1_score: 0,
+      player2_score: 0,
+      screenshot_url: '',
+      notes: ''
     })
-
-    console.log("[v0] Transformed bracket matches:", bracketMatches)
-    return bracketMatches
   }
 
-  return (
-    <div className="space-y-8">
-      {/* Tournament Overview */}
-      <Card className="bg-slate-800 border-slate-700">
-        <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <Users className="w-5 h-5" />
-            Tournament Overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-400">{participants.length}</div>
-              <div className="text-gray-400 text-sm">Total Participants</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-400">
-                {displayMatches.filter((m) => m.status === "completed").length}
+  const renderMatch = (match) => {
+    const isCompleted = match.status === 'completed'
+    const isPending = match.status === 'pending'
+    const hasPlayers = match.player1_id && match.player2_id
+
+    return (
+      <Card
+        key={match.id}
+        className={`relative cursor-pointer transition-all duration-200 hover:shadow-md ${
+          isCompleted 
+            ? 'bg-green-50 border-green-200' 
+            : isPending && hasPlayers 
+              ? 'bg-blue-50 border-blue-200' 
+              : 'bg-gray-50 border-gray-200'
+        }`}
+        onClick={() => hasPlayers && openMatchDialog(match)}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-2">
+            <Badge variant={isCompleted ? 'success' : isPending ? 'default' : 'secondary'}>
+              {match.match_type === 'final' ? 'Final' :
+               match.match_type === 'grand_final' ? 'Grand Final' :
+               `Round ${match.round}`}
+            </Badge>
+            <span className="text-sm text-gray-500">Match #{match.match_number}</span>
+          </div>
+
+          <div className="space-y-3">
+            {/* Player 1 */}
+            <div className={`flex items-center justify-between p-2 rounded ${
+              match.winner_id === match.player1_id ? 'bg-green-100' : 'bg-gray-100'
+            }`}>
+              <div className="flex items-center space-x-2">
+                {match.winner_id === match.player1_id && (
+                  <Trophy className="w-4 h-4 text-yellow-500" />
+                )}
+                <span className="font-medium">
+                  {match.player1?.full_name || match.player1?.username || 'TBD'}
+                </span>
               </div>
-              <div className="text-gray-400 text-sm">Completed Matches</div>
+              {isCompleted && (
+                <span className="text-lg font-bold">{match.player1_score}</span>
+              )}
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-yellow-400">{displayMaxRound}</div>
-              <div className="text-gray-400 text-sm">Total Rounds</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-400">
-                {tournament.tournament_type?.replace("_", " ").toUpperCase() || "SINGLE ELIMINATION"}
+
+            {/* VS Divider */}
+            <div className="text-center text-gray-400 text-sm font-medium">VS</div>
+
+            {/* Player 2 */}
+            <div className={`flex items-center justify-between p-2 rounded ${
+              match.winner_id === match.player2_id ? 'bg-green-100' : 'bg-gray-100'
+            }`}>
+              <div className="flex items-center space-x-2">
+                {match.winner_id === match.player2_id && (
+                  <Trophy className="w-4 h-4 text-yellow-500" />
+                )}
+                <span className="font-medium">
+                  {match.player2?.full_name || match.player2?.username || 'TBD'}
+                </span>
               </div>
-              <div className="text-gray-400 text-sm">Format</div>
+              {isCompleted && (
+                <span className="text-lg font-bold">{match.player2_score}</span>
+              )}
             </div>
+          </div>
+
+          {/* Match Status */}
+          <div className="mt-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              {isCompleted ? (
+                <CheckCircle className="w-4 h-4 text-green-500" />
+              ) : isPending && hasPlayers ? (
+                <Clock className="w-4 h-4 text-blue-500" />
+              ) : (
+                <XCircle className="w-4 h-4 text-gray-400" />
+              )}
+              <span className="text-sm text-gray-600">
+                {isCompleted
+                  ? 'Completed'
+                  : isPending && hasPlayers
+                    ? 'Pending'
+                    : 'Awaiting Players'
+                }
+              </span>
+            </div>
+
+            {match.completed_at && (
+              <span className="text-xs text-gray-400">
+                {new Date(match.completed_at).toLocaleDateString()}
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>
+    )
+  }
 
-      {/* Match Details Modal */}
-      {selectedMatch && (
-        <MatchDetailsModal
-          match={selectedMatch}
-          currentUser={currentUser}
-          onClose={() => setSelectedMatch(null)}
-          onResultSubmitted={handleResultSubmitted}
-        />
-      )}
+  const renderBracket = () => {
+    if (tournamentType === 'round_robin') {
+      return renderRoundRobinView()
+    } else if (tournamentType === 'group_stage') {
+      return renderGroupStageView()
+    } else {
+      return renderEliminationBracket()
+    }
+  }
 
-      {/* Always show bracket - either real or demo */}
-      <ProfessionalBracket />
+  const renderEliminationBracket = () => {
+    const rounds = {}
+    matches.forEach(match => {
+      if (!rounds[match.round]) {
+        rounds[match.round] = []
+      }
+      rounds[match.round].push(match)
+    })
 
-      {/* Generate Bracket Button - only show if no real matches */}
-      {isOrganizer && matches.length === 0 && (
-        <Card className="bg-slate-800 border-slate-700">
-          <CardContent className="pt-6 text-center">
-            <h3 className="text-xl font-bold text-white mb-4">Generate Real Tournament Bracket</h3>
-            <p className="text-gray-400 mb-6">
-              The bracket above is a preview. Click below to generate the actual tournament bracket with your{" "}
-              {participants.length} participants.
-            </p>
-            <Button
-              onClick={generateBracket}
-              disabled={loading || participants.length < 2}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              {loading ? "Generating..." : `Generate Real Bracket (${participants.length} Players)`}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tournament Winner Banner */}
-      {displayMaxRound > 0 && displayRounds[displayMaxRound] && displayRounds[displayMaxRound][0]?.winner_id && (
-        <Card className="bg-gradient-to-r from-yellow-600 via-yellow-500 to-yellow-600 border-yellow-400 shadow-2xl">
-          <CardContent className="pt-6 text-center">
-            <Trophy className="w-16 h-16 text-white mx-auto mb-4 animate-bounce" />
-            <h2 className="text-3xl font-bold text-white mb-2">🏆 Tournament Champion! 🏆</h2>
-            <p className="text-yellow-100 text-xl font-semibold">
-              {getPlayerName(displayRounds[displayMaxRound][0].winner_id)} wins the tournament!
-            </p>
-            <div className="mt-4 text-yellow-200">Congratulations on an outstanding performance! 🎉</div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* No Matches Yet */}
-      {matches.length === 0 && !isOrganizer && (
-        <Card className="bg-slate-800 border-slate-700">
-          <CardContent className="pt-6 text-center">
-            <Play className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">Bracket Not Generated Yet</h3>
-            <p className="text-gray-400">The tournament organizer hasn't generated the bracket yet.</p>
-            <p className="text-gray-500 text-sm mt-2">{participants.length} participants are ready to compete!</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Participants List */}
-      {participants.length > 0 && (
-        <Card className="bg-slate-800 border-slate-700">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Award className="w-5 h-5" />
-              Tournament Participants
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {participants.map((participant, index) => (
-                <div key={participant.id} className="flex items-center gap-3 p-3 bg-slate-700 rounded-lg">
-                  <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                    {index + 1}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium truncate">
-                      {participant.profiles?.username || participant.profiles?.full_name || `Player ${index + 1}`}
-                    </p>
-                    <p className="text-gray-400 text-xs">
-                      Joined {new Date(participant.joined_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-              ))}
+    return (
+      <div className="space-y-8">
+        {Object.entries(rounds).map(([roundNum, roundMatches]) => (
+          <div key={roundNum} className="space-y-4">
+            <h3 className="text-lg font-semibold text-center">
+              {roundNum == Math.max(...Object.keys(rounds))
+                ? 'Final'
+                : `Round ${roundNum}`
+              }
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {roundMatches.map(renderMatch)}
             </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const renderRoundRobinView = () => {
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Round Robin Matches</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {matches.map(renderMatch)}
+        </div>
+      </div>
+    )
+  }
+
+  const renderGroupStageView = () => {
+    const groups = {}
+    matches.forEach(match => {
+      const groupName = match.group_id || 'knockout'
+      if (!groups[groupName]) {
+        groups[groupName] = []
+      }
+      groups[groupName].push(match)
+    })
+
+    return (
+      <div className="space-y-8">
+        {Object.entries(groups).map(([groupName, groupMatches]) => (
+          <div key={groupName} className="space-y-4">
+            <h3 className="text-lg font-semibold">
+              {groupName === 'knockout' ? 'Knockout Stage' : `Group ${groupName}`}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {groupMatches.map(renderMatch)}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading tournament bracket...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <Trophy className="w-6 h-6 text-yellow-500" />
+          Tournament Bracket
+        </h2>
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-gray-500" />
+          <span className="text-sm text-gray-600">{matches.length} matches</span>
+        </div>
+      </div>
+
+      {matches.length === 0 ? (
+        <Card>
+          <CardContent className="text-center py-8">
+            <Trophy className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-600 mb-2">No Matches Yet</h3>
+            <p className="text-gray-500">Tournament bracket hasn't been generated yet.</p>
+            {isOrganizer && (
+              <Button className="mt-4">Generate Bracket</Button>
+            )}
           </CardContent>
         </Card>
+      ) : (
+        renderBracket()
       )}
+
+      {/* Match Result Dialog */}
+      <Dialog open={selectedMatch !== null} onOpenChange={() => setSelectedMatch(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Report Match Result</DialogTitle>
+          </DialogHeader>
+
+          {selectedMatch && (
+            <div className="space-y-4">
+              <div className="text-center p-4 bg-gray-50 rounded">
+                <div className="font-medium">{selectedMatch.player1?.full_name}</div>
+                <div className="text-gray-500 text-sm">VS</div>
+                <div className="font-medium">{selectedMatch.player2?.full_name}</div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Winner</Label>
+                <select
+                  value={resultForm.winner_id}
+                  onChange={(e) => setResultForm(prev => ({ ...prev, winner_id: e.target.value }))}
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">Select winner</option>
+                  <option value={selectedMatch.player1_id}>
+                    {selectedMatch.player1?.full_name}
+                  </option>
+                  <option value={selectedMatch.player2_id}>
+                    {selectedMatch.player2?.full_name}
+                  </option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Player 1 Score</Label>
+                  <Input
+                    type="number"
+                    value={resultForm.player1_score}
+                    onChange={(e) => setResultForm(prev => ({ ...prev, player1_score: parseInt(e.target.value) || 0 }))}
+                    min="0"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Player 2 Score</Label>
+                  <Input
+                    type="number"
+                    value={resultForm.player2_score}
+                    onChange={(e) => setResultForm(prev => ({ ...prev, player2_score: parseInt(e.target.value) || 0 }))}
+                    min="0"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Screenshot <span className="text-red-500">*</span></Label>
+                <Input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      // Validate file format
+                      const validTypes = ['image/png', 'image/jpeg', 'image/jpg']
+                      if (!validTypes.includes(file.type)) {
+                        alert('Please select a PNG or JPEG image file.')
+                        e.target.value = ''
+                        return
+                      }
+
+                      // For now, we'll store the file name as a placeholder
+                      // In a real implementation, this would upload to storage
+                      const fileUrl = `screenshot_${Date.now()}_${file.name}`
+                      setResultForm(prev => ({ ...prev, screenshot_url: fileUrl }))
+                    } else {
+                      setResultForm(prev => ({ ...prev, screenshot_url: '' }))
+                    }
+                  }}
+                />
+                <p className="text-sm text-gray-500">
+                  Required: Upload a screenshot in PNG or JPEG format
+                </p>
+                {resultForm.screenshot_url && (
+                  <p className="text-sm text-green-600">
+                    ✓ Screenshot selected: {resultForm.screenshot_url}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Notes (Optional)</Label>
+                <Textarea
+                  value={resultForm.notes}
+                  onChange={(e) => setResultForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Additional notes about the match..."
+                  rows="3"
+                />
+              </div>
+
+              {/* Authentication Status */}
+              {authLoading ? (
+                <div className="text-center p-2">
+                  <span className="text-sm text-gray-500">Checking authentication...</span>
+                </div>
+              ) : !user ? (
+                <div className="text-center p-2 bg-red-50 border border-red-200 rounded">
+                  <span className="text-sm text-red-600">
+                    You must be logged in to report match results
+                  </span>
+                </div>
+              ) : (
+                <div className="text-center p-2 bg-green-50 border border-green-200 rounded">
+                  <span className="text-sm text-green-600">
+                    Authenticated as {user.email}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-4">
+                <Button
+                  onClick={handleReportResult}
+                  disabled={!resultForm.winner_id || !resultForm.screenshot_url || reportingResult || !user || authLoading}
+                  className="flex-1"
+                >
+                  {reportingResult ? 'Reporting...' : 'Report Result'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedMatch(null)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

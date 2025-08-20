@@ -31,22 +31,9 @@ import { useRouter } from "next/navigation"
 const games = [
   "eFootball 2026",
   "FC Mobile",
-  "League of Legends",
-  "Counter-Strike 2",
-  "Valorant",
-  "Dota 2",
-  "Overwatch 2",
-  "Rocket League",
-  "Street Fighter 6",
-  "Tekken 8",
-  "Fortnite",
-  "Apex Legends",
-  "Call of Duty",
-  "FIFA 24",
-  "Mortal Kombat 1",
 ]
 
-const platforms = ["PC", "PlayStation", "Xbox", "Nintendo Switch", "Mobile (iOS)", "Mobile (Android)", "Mixed"]
+const platforms = ["PC", "PlayStation", "Xbox", "Nintendo Switch", "Mobile"]
 
 const countries = [
   "Tanzania",
@@ -79,6 +66,19 @@ export default function CreateTournamentForm() {
     // Tournament Structure
     tournamentType: "single_elimination",
     bracketSize: "16",
+    bracketType: "standard",
+
+    // Group Stage Settings
+    groupCount: 4,
+    teamsPerGroup: 4,
+    knockoutStageTeams: 2,
+
+    // Custom Format Settings
+    customRules: {
+      format: "mixed",
+      groupPhase: true,
+      knockoutPhase: true,
+    },
 
     // Financial
     isFree: true,
@@ -498,6 +498,12 @@ export default function CreateTournamentForm() {
                       Round Robin
                     </div>
                   </SelectItem>
+                  <SelectItem value="group_stage" className="text-white hover:bg-slate-700 rounded">
+                    <div className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-green-400" />
+                      Group Stage
+                    </div>
+                  </SelectItem>
                   <SelectItem value="custom" className="text-white hover:bg-slate-700 rounded">
                     <div className="flex items-center gap-2">
                       <Star className="w-4 h-4 text-purple-400" />
@@ -549,6 +555,178 @@ export default function CreateTournamentForm() {
               </Select>
             </div>
           </div>
+
+          {/* Format-Specific Configuration */}
+          {(formData.tournamentType === 'single_elimination' || formData.tournamentType === 'double_elimination') && (
+            <div className="mt-6 p-4 bg-slate-700/20 rounded-lg border border-slate-600/30">
+              <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                Bracket Configuration
+              </h4>
+              <div className="space-y-2">
+                <Label htmlFor="bracketType" className="text-gray-300 font-medium">
+                  Bracket Type
+                </Label>
+                <Select value={formData.bracketType} onValueChange={(value) => updateFormData({ bracketType: value })}>
+                  <SelectTrigger className="bg-slate-700/50 border-slate-600/50 text-white focus:border-green-500 rounded-lg h-12">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700 rounded-lg">
+                    <SelectItem value="standard" className="text-white hover:bg-slate-700 rounded">
+                      Standard (First come, first serve)
+                    </SelectItem>
+                    <SelectItem value="seeded" className="text-white hover:bg-slate-700 rounded">
+                      Seeded (Based on skill/rating)
+                    </SelectItem>
+                    <SelectItem value="random" className="text-white hover:bg-slate-700 rounded">
+                      Random (Shuffled)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {formData.tournamentType === 'group_stage' && (
+            <div className="mt-6 p-4 bg-slate-700/20 rounded-lg border border-slate-600/30">
+              <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Group Stage Configuration
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="groupCount" className="text-gray-300 font-medium">
+                    Number of Groups
+                  </Label>
+                  <Select value={formData.groupCount.toString()} onValueChange={(value) => updateFormData({ groupCount: parseInt(value) })}>
+                    <SelectTrigger className="bg-slate-700/50 border-slate-600/50 text-white focus:border-green-500 rounded-lg h-12">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-slate-700 rounded-lg">
+                      {[2, 4, 6, 8].map((count) => (
+                        <SelectItem key={count} value={count.toString()} className="text-white hover:bg-slate-700 rounded">
+                          {count} Groups
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="teamsPerGroup" className="text-gray-300 font-medium">
+                    Teams per Group
+                  </Label>
+                  <Select value={formData.teamsPerGroup.toString()} onValueChange={(value) => updateFormData({ teamsPerGroup: parseInt(value) })}>
+                    <SelectTrigger className="bg-slate-700/50 border-slate-600/50 text-white focus:border-green-500 rounded-lg h-12">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-slate-700 rounded-lg">
+                      {[3, 4, 5, 6].map((count) => (
+                        <SelectItem key={count} value={count.toString()} className="text-white hover:bg-slate-700 rounded">
+                          {count} Teams
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="knockoutStageTeams" className="text-gray-300 font-medium">
+                    Advance to Knockout
+                  </Label>
+                  <Select value={formData.knockoutStageTeams.toString()} onValueChange={(value) => updateFormData({ knockoutStageTeams: parseInt(value) })}>
+                    <SelectTrigger className="bg-slate-700/50 border-slate-600/50 text-white focus:border-green-500 rounded-lg h-12">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-slate-700 rounded-lg">
+                      {[1, 2, 3].map((count) => (
+                        <SelectItem key={count} value={count.toString()} className="text-white hover:bg-slate-700 rounded">
+                          Top {count} from each group
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {formData.tournamentType === 'custom' && (
+            <div className="mt-6 p-4 bg-slate-700/20 rounded-lg border border-slate-600/30">
+              <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                <Star className="w-4 h-4" />
+                Custom Format Configuration
+              </h4>
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="groupPhase"
+                    checked={formData.customRules.groupPhase}
+                    onCheckedChange={(checked) => updateFormData({
+                      customRules: { ...formData.customRules, groupPhase: checked }
+                    })}
+                    className="border-slate-500 data-[state=checked]:bg-purple-500 data-[state=checked]:border-purple-500"
+                  />
+                  <Label htmlFor="groupPhase" className="text-gray-300 font-medium cursor-pointer">
+                    Include Group Phase
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <Checkbox
+                    id="knockoutPhase"
+                    checked={formData.customRules.knockoutPhase}
+                    onCheckedChange={(checked) => updateFormData({
+                      customRules: { ...formData.customRules, knockoutPhase: checked }
+                    })}
+                    className="border-slate-500 data-[state=checked]:bg-purple-500 data-[state=checked]:border-purple-500"
+                  />
+                  <Label htmlFor="knockoutPhase" className="text-gray-300 font-medium cursor-pointer">
+                    Include Knockout Phase
+                  </Label>
+                </div>
+                {formData.customRules.groupPhase && (
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="customGroupCount" className="text-gray-300 font-medium">
+                        Number of Groups
+                      </Label>
+                      <Select value={(formData.customRules.groupCount || 4).toString()} onValueChange={(value) => updateFormData({
+                        customRules: { ...formData.customRules, groupCount: parseInt(value) }
+                      })}>
+                        <SelectTrigger className="bg-slate-700/50 border-slate-600/50 text-white focus:border-purple-500 rounded-lg h-12">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-800 border-slate-700 rounded-lg">
+                          {[2, 4, 6, 8].map((count) => (
+                            <SelectItem key={count} value={count.toString()} className="text-white hover:bg-slate-700 rounded">
+                              {count} Groups
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="customTeamsPerGroup" className="text-gray-300 font-medium">
+                        Teams per Group
+                      </Label>
+                      <Select value={(formData.customRules.teamsPerGroup || 4).toString()} onValueChange={(value) => updateFormData({
+                        customRules: { ...formData.customRules, teamsPerGroup: parseInt(value) }
+                      })}>
+                        <SelectTrigger className="bg-slate-700/50 border-slate-600/50 text-white focus:border-purple-500 rounded-lg h-12">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-800 border-slate-700 rounded-lg">
+                          {[3, 4, 5, 6].map((count) => (
+                            <SelectItem key={count} value={count.toString()} className="text-white hover:bg-slate-700 rounded">
+                              {count} Teams
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
