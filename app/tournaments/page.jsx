@@ -117,8 +117,9 @@ const fallbackTournaments = [
 ]
 
 export default async function TournamentsPage({ searchParams }) {
-  const gameFilter = searchParams?.game
-  const searchQuery = searchParams?.search
+  const awaitedSearchParams = await searchParams
+  const gameFilter = awaitedSearchParams?.game
+  const searchQuery = awaitedSearchParams?.search
   const supabase = createClient()
   let tournaments = null
   let usingFallback = false

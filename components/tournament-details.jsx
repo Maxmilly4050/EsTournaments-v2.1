@@ -16,6 +16,18 @@ export function TournamentDetails({ tournament, user, isParticipant }) {
   const [joined, setJoined] = useState(isParticipant)
   const [error, setError] = useState(null)
 
+  // Guard against null tournament to prevent runtime errors
+  if (!tournament) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-8">
+        <div className="text-center text-white">
+          <h1 className="text-4xl font-bold mb-4">Tournament Not Found</h1>
+          <p className="text-gray-400">Unable to load tournament data.</p>
+        </div>
+      </div>
+    )
+  }
+
   const actualParticipantCount = tournament.tournament_participants?.length || tournament.current_participants || 0
 
   const handleJoinTournament = async () => {

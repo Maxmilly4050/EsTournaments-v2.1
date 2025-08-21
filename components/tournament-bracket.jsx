@@ -18,11 +18,13 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
   const [reportingResult, setReportingResult] = useState(false)
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('match-code')
   const [resultForm, setResultForm] = useState({
     winner_id: '',
     player1_score: 0,
     player2_score: 0,
     screenshot_url: '',
+    match_room_code: '',
     notes: ''
   })
 
@@ -153,7 +155,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       }
 
       // Verify user is participant or organizer
-      const isParticipant = selectedMatch.player1_id === user.id || selectedMatch.player2_id === user.id
+      const isParticipant = selectedMatch?.player1_id === user?.id || selectedMatch?.player2_id === user?.id
       if (!isParticipant && !isOrganizer) {
         alert('You can only report results for matches you are participating in.')
         return
@@ -240,6 +242,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
           player1_score: 0,
           player2_score: 0,
           screenshot_url: '',
+          match_room_code: '',
           notes: ''
         })
       } else {
@@ -485,138 +488,212 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       )}
 
       {/* Match Result Dialog */}
-      <Dialog open={selectedMatch !== null} onOpenChange={() => setSelectedMatch(null)}>
+      <Dialog open={selectedMatch !== null} onOpenChange={() => {
+        setSelectedMatch(null)
+        setActiveTab('match-code')
+      }}>
         <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Report Match Result</DialogTitle>
-          </DialogHeader>
-
           {selectedMatch && (
             <div className="space-y-4">
-              <div className="text-center p-4 bg-gray-50 rounded">
-                <div className="font-medium">{selectedMatch.player1?.full_name}</div>
-                <div className="text-gray-500 text-sm">VS</div>
-                <div className="font-medium">{selectedMatch.player2?.full_name}</div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Winner</Label>
-                <select
-                  value={resultForm.winner_id}
-                  onChange={(e) => setResultForm(prev => ({ ...prev, winner_id: e.target.value }))}
-                  className="w-full p-2 border rounded"
+              {/* Tab Navigation */}
+              <div className="flex rounded-lg bg-gray-100 p-1">
+                <button
+                  onClick={() => setActiveTab('match-code')}
+                  className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                    activeTab === 'match-code'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
                 >
-                  <option value="">Select winner</option>
-                  <option value={selectedMatch.player1_id}>
-                    {selectedMatch.player1?.full_name}
-                  </option>
-                  <option value={selectedMatch.player2_id}>
-                    {selectedMatch.player2?.full_name}
-                  </option>
-                </select>
+                  Match Code
+                </button>
+                <button
+                  onClick={() => setActiveTab('report-results')}
+                  className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+                    activeTab === 'report-results'
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Report Results
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Player 1 Score</Label>
-                  <Input
-                    type="number"
-                    value={resultForm.player1_score}
-                    onChange={(e) => setResultForm(prev => ({ ...prev, player1_score: parseInt(e.target.value) || 0 }))}
-                    min="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Player 2 Score</Label>
-                  <Input
-                    type="number"
-                    value={resultForm.player2_score}
-                    onChange={(e) => setResultForm(prev => ({ ...prev, player2_score: parseInt(e.target.value) || 0 }))}
-                    min="0"
-                  />
-                </div>
-              </div>
+              {/* Tab Content */}
+              {activeTab === 'match-code' && (
+                <>
+                  {/* Player Names */}
+                  <div className="text-center">
+                    <div className="font-medium">{selectedMatch.player1?.full_name}</div>
+                    <div className="font-medium">{selectedMatch.player2?.full_name}</div>
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Screenshot <span className="text-red-500">*</span></Label>
-                <Input
-                  type="file"
-                  accept=".png,.jpg,.jpeg,image/png,image/jpeg"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) {
-                      // Validate file format
-                      const validTypes = ['image/png', 'image/jpeg', 'image/jpg']
-                      if (!validTypes.includes(file.type)) {
-                        alert('Please select a PNG or JPEG image file.')
-                        e.target.value = ''
-                        return
-                      }
+                  <div className="space-y-2">
+                    <Label>Code</Label>
+                    <Input
+                      type="text"
+                      value={resultForm.match_room_code}
+                      onChange={(e) => setResultForm(prev => ({ ...prev, match_room_code: e.target.value }))}
+                      placeholder="Value"
+                      maxLength="20"
+                      className="text-center"
+                    />
+                  </div>
 
-                      // For now, we'll store the file name as a placeholder
-                      // In a real implementation, this would upload to storage
-                      const fileUrl = `screenshot_${Date.now()}_${file.name}`
-                      setResultForm(prev => ({ ...prev, screenshot_url: fileUrl }))
-                    } else {
-                      setResultForm(prev => ({ ...prev, screenshot_url: '' }))
-                    }
-                  }}
-                />
-                <p className="text-sm text-gray-500">
-                  Required: Upload a screenshot in PNG or JPEG format
-                </p>
-                {resultForm.screenshot_url && (
-                  <p className="text-sm text-green-600">
-                    ✓ Screenshot selected: {resultForm.screenshot_url}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label>Notes (Optional)</Label>
-                <Textarea
-                  value={resultForm.notes}
-                  onChange={(e) => setResultForm(prev => ({ ...prev, notes: e.target.value }))}
-                  placeholder="Additional notes about the match..."
-                  rows="3"
-                />
-              </div>
-
-              {/* Authentication Status */}
-              {authLoading ? (
-                <div className="text-center p-2">
-                  <span className="text-sm text-gray-500">Checking authentication...</span>
-                </div>
-              ) : !user ? (
-                <div className="text-center p-2 bg-red-50 border border-red-200 rounded">
-                  <span className="text-sm text-red-600">
-                    You must be logged in to report match results
-                  </span>
-                </div>
-              ) : (
-                <div className="text-center p-2 bg-green-50 border border-green-200 rounded">
-                  <span className="text-sm text-green-600">
-                    Authenticated as {user.email}
-                  </span>
-                </div>
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => setSelectedMatch(null)}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleReportResult}
+                      disabled={!resultForm.match_room_code?.trim() || reportingResult || !user || authLoading}
+                      className="flex-1 bg-gray-700 hover:bg-gray-800"
+                    >
+                      {reportingResult ? 'Sending...' : 'Send Code'}
+                    </Button>
+                  </div>
+                </>
               )}
 
-              <div className="flex gap-2 pt-4">
-                <Button
-                  onClick={handleReportResult}
-                  disabled={!resultForm.winner_id || !resultForm.screenshot_url || reportingResult || !user || authLoading}
-                  className="flex-1"
-                >
-                  {reportingResult ? 'Reporting...' : 'Report Result'}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setSelectedMatch(null)}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-              </div>
+              {activeTab === 'report-results' && (
+                <>
+                  {/* Player Names */}
+                  <div className="text-center">
+                    <div className="font-medium">{selectedMatch.player1?.full_name}</div>
+                    <div className="font-medium">{selectedMatch.player2?.full_name}</div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Winner</Label>
+                    <select
+                      value={resultForm.winner_id}
+                      onChange={(e) => setResultForm(prev => ({ ...prev, winner_id: e.target.value }))}
+                      className="w-full p-2 border rounded"
+                    >
+                      <option value="">Select winner</option>
+                      <option value={selectedMatch.player1_id}>
+                        {selectedMatch.player1?.full_name}
+                      </option>
+                      <option value={selectedMatch.player2_id}>
+                        {selectedMatch.player2?.full_name}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Player 1 Score</Label>
+                      <Input
+                        type="number"
+                        value={resultForm.player1_score}
+                        onChange={(e) => setResultForm(prev => ({ ...prev, player1_score: parseInt(e.target.value) || 0 }))}
+                        min="0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Player 2 Score</Label>
+                      <Input
+                        type="number"
+                        value={resultForm.player2_score}
+                        onChange={(e) => setResultForm(prev => ({ ...prev, player2_score: parseInt(e.target.value) || 0 }))}
+                        min="0"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Screenshot <span className="text-red-500">*</span></Label>
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            // Validate file format
+                            const validTypes = ['image/png', 'image/jpeg', 'image/jpg']
+                            if (!validTypes.includes(file.type)) {
+                              alert('Please select a PNG or JPEG image file.')
+                              e.target.value = ''
+                              return
+                            }
+
+                            // For now, we'll store the file name as a placeholder
+                            // In a real implementation, this would upload to storage
+                            const fileUrl = `screenshot_${Date.now()}_${file.name}`
+                            setResultForm(prev => ({ ...prev, screenshot_url: fileUrl }))
+                          } else {
+                            setResultForm(prev => ({ ...prev, screenshot_url: '' }))
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        id="screenshot-upload"
+                      />
+                      <div className="w-full p-3 border border-gray-300 rounded-md bg-white cursor-pointer hover:bg-gray-50">
+                        <span className="text-gray-700">
+                          {resultForm.screenshot_url ?
+                            `Selected: ${resultForm.screenshot_url.split('_').pop()}` :
+                            'Browse... No file selected.'
+                          }
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-500">
+                      Required: Upload a screenshot in PNG or JPEG format
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Notes (Optional)</Label>
+                    <Textarea
+                      value={resultForm.notes}
+                      onChange={(e) => setResultForm(prev => ({ ...prev, notes: e.target.value }))}
+                      placeholder="Additional notes about the match..."
+                      rows="3"
+                    />
+                  </div>
+
+                  {/* Authentication Status */}
+                  {authLoading ? (
+                    <div className="text-center p-2">
+                      <span className="text-sm text-gray-500">Checking authentication...</span>
+                    </div>
+                  ) : !user ? (
+                    <div className="text-center p-2 bg-red-50 border border-red-200 rounded">
+                      <span className="text-sm text-red-600">
+                        You must be logged in to report match results
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-center p-2 bg-green-50 border border-green-200 rounded">
+                      <span className="text-sm text-green-600">
+                        Authenticated as {user.email}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => setSelectedMatch(null)}
+                      className="flex-1"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleReportResult}
+                      disabled={!resultForm.winner_id || !resultForm.screenshot_url || reportingResult || !user || authLoading}
+                      className="flex-1 bg-gray-700 hover:bg-gray-800"
+                    >
+                      {reportingResult ? 'Sending...' : 'Send Code'}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </DialogContent>

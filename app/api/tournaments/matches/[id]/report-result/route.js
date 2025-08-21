@@ -1,15 +1,34 @@
 import { NextResponse } from 'next/server'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { TournamentBracketGenerator } from '@/lib/tournament/bracket-generator'
 
 export async function POST(request, { params }) {
   try {
-    const supabase = createServerComponentClient({ cookies })
+    // Create server client with proper cookie handling for API routes
+    const cookieStore = cookies()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      {
+        cookies: {
+          get(name) {
+            return cookieStore.get(name)?.value
+          },
+          set(name, value, options) {
+            cookieStore.set({ name, value, ...options })
+          },
+          remove(name, options) {
+            cookieStore.set({ name, value: '', ...options })
+          },
+        },
+      }
+    )
+
     const { id: matchId } = params
     const body = await request.json()
 
-    const { winner_id, player1_score = 0, player2_score = 0, screenshot_url, notes } = body
+    const { winner_id, player1_score = 0, player2_score = 0, screenshot_url, match_room_code, notes } = body
 
     // Get current user with detailed error logging
     console.log('[AUTH] Attempting to get user from Supabase...')
@@ -82,46 +101,85 @@ export async function POST(request, { params }) {
       }, { status: 403 })
     }
 
-    // Validate winner_id
-    if (winner_id && winner_id !== match.player1_id && winner_id !== match.player2_id) {
+    // Determine if this is a match code only submission or full result reporting
+    const isMatchCodeOnly = !winner_id && match_room_code && match_room_code.trim() !== ''
+    const isFullResultReporting = winner_id && winner_id.trim() !== ''
+
+    // Validate that at least one action is being performed
+    if (!isMatchCodeOnly && !isFullResultReporting) {
+      return NextResponse.json({
+        error: 'Invalid submission',
+        details: 'Must provide either match room code or full match results'
+      }, { status: 400 })
+    }
+
+    // Validate winner_id only for full result reporting
+    if (isFullResultReporting && winner_id !== match.player1_id && winner_id !== match.player2_id) {
       return NextResponse.json({ error: 'Invalid winner ID' }, { status: 400 })
     }
 
-    // Validate screenshot requirement - screenshot is mandatory
-    if (!screenshot_url || screenshot_url.trim() === '') {
+    // Validate screenshot requirement - only required when reporting full results
+    if (isFullResultReporting && (!screenshot_url || screenshot_url.trim() === '')) {
       return NextResponse.json({
         error: 'Screenshot is required',
         details: 'A screenshot in PNG or JPEG format must be provided to report match results'
       }, { status: 400 })
     }
 
-    // Validate screenshot format (basic validation for file extensions)
-    const validImageFormats = /\.(png|jpe?g)$/i
-    const isValidFormat = validImageFormats.test(screenshot_url) ||
-                         screenshot_url.includes('.png') ||
-                         screenshot_url.includes('.jpg') ||
-                         screenshot_url.includes('.jpeg')
+    // Validate screenshot format (basic validation for file extensions) - only when screenshot is provided
+    if (screenshot_url && screenshot_url.trim() !== '') {
+      const validImageFormats = /\.(png|jpe?g)$/i
+      const isValidFormat = validImageFormats.test(screenshot_url) ||
+                           screenshot_url.includes('.png') ||
+                           screenshot_url.includes('.jpg') ||
+                           screenshot_url.includes('.jpeg')
 
-    if (!isValidFormat) {
+      if (!isValidFormat) {
+        return NextResponse.json({
+          error: 'Invalid screenshot format',
+          details: 'Screenshot must be in PNG or JPEG format'
+        }, { status: 400 })
+      }
+    }
+
+    // Validate match room code requirement - only for match code submissions
+    if (isMatchCodeOnly && (!match_room_code || match_room_code.trim() === '')) {
       return NextResponse.json({
-        error: 'Invalid screenshot format',
-        details: 'Screenshot must be in PNG or JPEG format'
+        error: 'Match room code is required',
+        details: 'A match room code must be provided'
       }, { status: 400 })
     }
 
-    // Create match result record - FIXED to match database schema
+    // Create match result record based on submission type
+    const insertData = {
+      match_id: matchId,
+      submitted_by: user.id,
+      notes: notes || '',
+      status: isOrganizer ? 'approved' : 'pending'
+    }
+
+    // Add match room code if provided
+    if (match_room_code && match_room_code.trim() !== '') {
+      insertData.match_room_code = match_room_code.trim()
+    }
+
+    // Add result data only for full result reporting
+    if (isFullResultReporting) {
+      insertData.winner_id = winner_id
+      insertData.player1_score = player1_score || 0
+      insertData.player2_score = player2_score || 0
+      insertData.screenshot_urls = screenshot_url ? [screenshot_url] : []
+    } else {
+      // For match code only, set result fields to null
+      insertData.winner_id = null
+      insertData.player1_score = null
+      insertData.player2_score = null
+      insertData.screenshot_urls = []
+    }
+
     const { data: matchResult, error: resultError } = await supabase
       .from('match_results')
-      .insert({
-        match_id: matchId,
-        submitted_by: user.id,        // ✅ Correct column name
-        winner_id: winner_id,         // ✅ Direct column
-        player1_score: player1_score || 0,  // ✅ Direct column
-        player2_score: player2_score || 0,  // ✅ Direct column
-        screenshot_urls: screenshot_url ? [screenshot_url] : [], // ✅ Array format
-        notes: notes || '',           // ✅ Direct column
-        status: isOrganizer ? 'approved' : 'pending'  // ✅ Correct status format
-      })
+      .insert(insertData)
       .select()
       .single()
 
