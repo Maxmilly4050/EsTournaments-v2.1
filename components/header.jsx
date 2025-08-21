@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation"
 import { useTransition, useEffect, useState, useRef } from "react"
-import { NotificationCenter } from "./notification-center"
+import NotificationCenter from "./notifications"
 
 const ADMIN_USER_IDS = process.env.NEXT_PUBLIC_ADMIN_USER_IDS
   ? process.env.NEXT_PUBLIC_ADMIN_USER_IDS.split(",").map((id) => id.trim())

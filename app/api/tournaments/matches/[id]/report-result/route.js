@@ -5,22 +5,13 @@ import { TournamentBracketGenerator } from '@/lib/tournament/bracket-generator'
 
 export async function POST(request, { params }) {
   try {
-    // Create server client with proper cookie handling for API routes
-    const cookieStore = cookies()
+    // Use the service role key for server-side operations like other API routes
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,  // Use service role key
       {
         cookies: {
-          get(name) {
-            return cookieStore.get(name)?.value
-          },
-          set(name, value, options) {
-            cookieStore.set({ name, value, ...options })
-          },
-          remove(name, options) {
-            cookieStore.set({ name, value: '', ...options })
-          },
+          get() { return undefined }, // Service role doesn't need cookies
         },
       }
     )
@@ -28,18 +19,37 @@ export async function POST(request, { params }) {
     const { id: matchId } = params
     const body = await request.json()
 
+    // Get user from the request headers (set by middleware)
+    const cookieStore = cookies()
+    const authClient = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,  // Use anon key for auth
+      {
+        cookies: {
+          get(name) {
+            return cookieStore.get(name)?.value
+          },
+        },
+      }
+    )
+
+    const { data: { user }, error: authError } = await authClient.auth.getUser()
+
+    if (authError || !user) {
+      console.error('[AUTH] Authentication failed:', authError)
+      return NextResponse.json({ error: 'Unauthorized - Please log in again' }, { status: 401 })
+    }
+
+    console.log('[AUTH] User authenticated successfully:', user.id)
+
     const { winner_id, player1_score = 0, player2_score = 0, screenshot_url, match_room_code, notes } = body
 
     // Get current user with detailed error logging
     console.log('[AUTH] Attempting to get user from Supabase...')
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const { data: dummy, error: authError2 } = await supabase.auth.getUser()
 
-    if (authError) {
-      console.error('[AUTH] Supabase auth error:', authError)
-      return NextResponse.json({
-        error: 'Authentication failed',
-        details: authError.message || 'Unknown auth error'
-      }, { status: 401 })
+    if (authError2) {
+      console.error('[AUTH] Supabase auth error:', authError2)
     }
 
     if (!user) {
@@ -113,6 +123,46 @@ export async function POST(request, { params }) {
       }, { status: 400 })
     }
 
+    // For match room code submissions, check if opponent has already submitted and enforce mutual requirement
+    if (isMatchCodeOnly) {
+      // Check if the opponent has already submitted a match room code
+      const opponentId = match.player1_id === user.id ? match.player2_id : match.player1_id
+
+      const { data: existingResults, error: resultsError } = await supabase
+        .from('match_results')
+        .select('submitted_by, result_notes')
+        .eq('match_id', matchId)
+        .contains('result_notes', 'Match Room Code:')
+
+      if (resultsError) {
+        console.error('[DATABASE] Error checking existing match results:', resultsError)
+        return NextResponse.json({
+          error: 'Failed to check existing submissions',
+          details: resultsError.message
+        }, { status: 500 })
+      }
+
+      // Check if current user has already submitted a room code
+      const userAlreadySubmitted = existingResults?.some(result => result.submitted_by === user.id)
+      if (userAlreadySubmitted) {
+        return NextResponse.json({
+          error: 'Room code already submitted',
+          details: 'You have already submitted a match room code for this match'
+        }, { status: 400 })
+      }
+
+      // Check if opponent has submitted a room code
+      const opponentSubmitted = existingResults?.some(result => result.submitted_by === opponentId)
+
+      if (opponentSubmitted) {
+        // Both players have now provided room codes - this submission completes the requirement
+        console.log('[MATCH_CODE] Both players have now provided room codes')
+      } else {
+        // This is the first room code submission - opponent will be required to provide one too
+        console.log('[MATCH_CODE] First room code submitted, opponent must also provide one')
+      }
+    }
+
     // Validate winner_id only for full result reporting
     if (isFullResultReporting && winner_id !== match.player1_id && winner_id !== match.player2_id) {
       return NextResponse.json({ error: 'Invalid winner ID' }, { status: 400 })
@@ -151,30 +201,28 @@ export async function POST(request, { params }) {
     }
 
     // Create match result record based on submission type
+    // Note: match_results table schema has: id, match_id, submitted_by, screenshot_url, score, result_notes, created_at, updated_at
     const insertData = {
-      match_id: matchId,
+      match_id: parseInt(matchId),
       submitted_by: user.id,
-      notes: notes || '',
-      status: isOrganizer ? 'approved' : 'pending'
-    }
-
-    // Add match room code if provided
-    if (match_room_code && match_room_code.trim() !== '') {
-      insertData.match_room_code = match_room_code.trim()
+      result_notes: notes || ''
     }
 
     // Add result data only for full result reporting
     if (isFullResultReporting) {
-      insertData.winner_id = winner_id
-      insertData.player1_score = player1_score || 0
-      insertData.player2_score = player2_score || 0
-      insertData.screenshot_urls = screenshot_url ? [screenshot_url] : []
+      insertData.screenshot_url = screenshot_url || ''
+      // Store score as the winner's score or combine scores
+      insertData.score = winner_id === match.player1_id ? (player1_score || 0) : (player2_score || 0)
+
+      // Add match room code to notes if provided
+      if (match_room_code && match_room_code.trim() !== '') {
+        insertData.result_notes = `${insertData.result_notes}\nMatch Room Code: ${match_room_code.trim()}`.trim()
+      }
     } else {
-      // For match code only, set result fields to null
-      insertData.winner_id = null
-      insertData.player1_score = null
-      insertData.player2_score = null
-      insertData.screenshot_urls = []
+      // For match code only submissions
+      insertData.screenshot_url = '' // Not required for match code only
+      insertData.score = null
+      insertData.result_notes = `Match Room Code: ${match_room_code?.trim() || ''}`
     }
 
     const { data: matchResult, error: resultError } = await supabase
@@ -184,7 +232,99 @@ export async function POST(request, { params }) {
       .single()
 
     if (resultError) {
-      return NextResponse.json({ error: 'Failed to save match result' }, { status: 500 })
+      console.error('[DATABASE] Failed to insert match result:', resultError)
+      console.error('[DATABASE] Insert data was:', JSON.stringify(insertData, null, 2))
+      return NextResponse.json({
+        error: 'Failed to save match result',
+        details: resultError.message,
+        debug: {
+          table: 'match_results',
+          operation: 'insert',
+          data: insertData
+        }
+      }, { status: 500 })
+    }
+
+    // Create notification for match code sharing
+    if (isMatchCodeOnly && match_room_code && match_room_code.trim() !== '') {
+      // Determine the opponent who should receive the notification
+      const opponentId = match.player1_id === user.id ? match.player2_id : match.player1_id
+
+      if (opponentId) {
+        // Get player names for the notification
+        const { data: currentPlayerProfile } = await supabase
+          .from('profiles')
+          .select('username, full_name')
+          .eq('id', user.id)
+          .single()
+
+        const playerName = currentPlayerProfile?.full_name || currentPlayerProfile?.username || 'Player'
+
+        // Re-check if opponent has submitted (use the same query as above)
+        const { data: finalCheck } = await supabase
+          .from('match_results')
+          .select('submitted_by, result_notes')
+          .eq('match_id', matchId)
+          .contains('result_notes', 'Match Room Code:')
+
+        const opponentSubmitted = finalCheck?.some(result => result.submitted_by === opponentId)
+
+        if (opponentSubmitted) {
+          // Both players have now provided room codes - notify both that match can begin
+          const { data: opponentProfile } = await supabase
+            .from('profiles')
+            .select('username, full_name')
+            .eq('id', opponentId)
+            .single()
+
+          const opponentName = opponentProfile?.full_name || opponentProfile?.username || 'Player'
+
+          // Notify the opponent that both codes are now available
+          await supabase
+            .from('notifications')
+            .insert({
+              user_id: opponentId,
+              tournament_id: match.tournament_id,
+              match_id: matchId,
+              type: 'result_notification',
+              title: 'Both Room Codes Received - Match Ready!',
+              message: `Both you and ${playerName} have shared match room codes. The match can now begin!`,
+              is_read: false,
+              created_at: new Date().toISOString(),
+              scheduled_for: new Date().toISOString()
+            })
+
+          // Notify the current user that both codes are submitted
+          await supabase
+            .from('notifications')
+            .insert({
+              user_id: user.id,
+              tournament_id: match.tournament_id,
+              match_id: matchId,
+              type: 'result_notification',
+              title: 'Both Room Codes Received - Match Ready!',
+              message: `Both you and ${opponentName} have shared match room codes. The match can now begin!`,
+              is_read: false,
+              created_at: new Date().toISOString(),
+              scheduled_for: new Date().toISOString()
+            })
+        } else {
+          // First submission - notify opponent they need to provide their code too
+          await supabase
+            .from('notifications')
+            .insert({
+              user_id: opponentId,
+              tournament_id: match.tournament_id,
+              match_id: matchId,
+              type: 'result_notification',
+              title: 'Match Room Code Required',
+              message: `${playerName} has shared their match room code. You must also provide your match room code before the match can begin.`,
+              is_read: false,
+              created_at: new Date().toISOString(),
+              scheduled_for: new Date().toISOString()
+            })
+        }
+      }
     }
 
     // If reported by organizer or auto-verification enabled, update match and progress tournament
@@ -205,6 +345,61 @@ export async function POST(request, { params }) {
 
       // Progress tournament bracket
       await bracketGenerator.updateBracketProgression(matchId, winner_id)
+
+      // Create notifications for match result determination
+      if (isFullResultReporting) {
+        // Get player profiles for notifications
+        const { data: player1Profile } = await supabase
+          .from('profiles')
+          .select('username, full_name')
+          .eq('id', match.player1_id)
+          .single()
+
+        const { data: player2Profile } = await supabase
+          .from('profiles')
+          .select('username, full_name')
+          .eq('id', match.player2_id)
+          .single()
+
+        const player1Name = player1Profile?.full_name || player1Profile?.username || 'Player 1'
+        const player2Name = player2Profile?.full_name || player2Profile?.username || 'Player 2'
+
+        // Determine winner and loser
+        const winnerId = winner_id
+        const loserId = match.player1_id === winnerId ? match.player2_id : match.player1_id
+        const winnerName = winnerId === match.player1_id ? player1Name : player2Name
+        const loserName = winnerId === match.player1_id ? player2Name : player1Name
+
+        // Create notification for winner
+        await supabase
+          .from('notifications')
+          .insert({
+            user_id: winnerId,
+            tournament_id: match.tournament_id,
+            match_id: matchId,
+            type: 'result_notification',
+            title: 'Match Result: You Won!',
+            message: `Congratulations! You have won your match against ${loserName}. You have advanced to the next round of the tournament.`,
+            is_read: false,
+            created_at: new Date().toISOString(),
+            scheduled_for: new Date().toISOString()
+          })
+
+        // Create notification for loser
+        await supabase
+          .from('notifications')
+          .insert({
+            user_id: loserId,
+            tournament_id: match.tournament_id,
+            match_id: matchId,
+            type: 'result_notification',
+            title: 'Match Result: Match Completed',
+            message: `Your match against ${winnerName} has been completed. Unfortunately, you have been eliminated from this tournament. Thank you for participating!`,
+            is_read: false,
+            created_at: new Date().toISOString(),
+            scheduled_for: new Date().toISOString()
+          })
+      }
 
       return NextResponse.json({
         success: true,

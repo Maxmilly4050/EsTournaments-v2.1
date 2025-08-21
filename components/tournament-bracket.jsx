@@ -529,15 +529,18 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Code</Label>
+                    <Label>Match Room Code <span className="text-red-500">*</span></Label>
                     <Input
                       type="text"
                       value={resultForm.match_room_code}
                       onChange={(e) => setResultForm(prev => ({ ...prev, match_room_code: e.target.value }))}
-                      placeholder="Value"
+                      placeholder="Enter match room code"
                       maxLength="20"
                       className="text-center"
                     />
+                    <p className="text-sm text-gray-500">
+                      Both players must provide their match room codes before the match can begin.
+                    </p>
                   </div>
 
                   <div className="flex gap-2 pt-4">
