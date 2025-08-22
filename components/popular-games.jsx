@@ -4,13 +4,13 @@ export function PopularGames() {
   const games = [
     {
       name: "eFootball 2026",
-      image: "/placeholder.svg", // Local placeholder to avoid DNS resolution issues
+      image: "/eFootball2026.jpg", // Local placeholder to avoid DNS resolution issues
       players: "1.8K",
-      slug: "efootball-2026", // Added slug for URL routing
+      slug: "/efootball-2026", // Added slug for URL routing
     },
     {
       name: "FC Mobile",
-      image: "/placeholder.svg", // Local placeholder to avoid DNS resolution issues
+      image: "/EA FC26.jpg", // Local placeholder to avoid DNS resolution issues
       players: "1.2K",
       slug: "fc-mobile", // Added slug for URL routing
     },
