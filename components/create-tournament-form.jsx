@@ -66,6 +66,7 @@ export default function CreateTournamentForm() {
     // Tournament Structure
     tournamentType: "single_elimination",
     bracketSize: "16",
+    customPlayerCount: "",
     bracketType: "standard",
 
     // Group Stage Settings
@@ -305,8 +306,12 @@ export default function CreateTournamentForm() {
             game: formData.game,
             description: formData.description,
             tournament_type: formData.tournamentType,
-            bracket_size: Number.parseInt(formData.bracketSize),
-            max_participants: Number.parseInt(formData.bracketSize),
+            bracket_size: formData.bracketSize === 'custom'
+              ? Number.parseInt(formData.customPlayerCount)
+              : Number.parseInt(formData.bracketSize),
+            max_participants: formData.bracketSize === 'custom'
+              ? Number.parseInt(formData.customPlayerCount)
+              : Number.parseInt(formData.bracketSize),
             is_free: formData.isFree,
             entry_fee_amount: formData.isFree ? 0 : Number.parseFloat(formData.entryFeeAmount) || 0,
             entry_fee_currency: formData.entryFeeCurrency,
@@ -517,20 +522,55 @@ export default function CreateTournamentForm() {
             <div className="space-y-2">
               <Label htmlFor="bracketSize" className="text-gray-300 font-medium flex items-center gap-2">
                 <Users className="w-4 h-4" />
-                Bracket Size *
+                Player Count *
               </Label>
               <Select value={formData.bracketSize} onValueChange={(value) => updateFormData({ bracketSize: value })}>
                 <SelectTrigger className="bg-slate-700/50 border-slate-600/50 text-white focus:border-green-500 rounded-lg h-12">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-slate-800 border-slate-700 rounded-lg">
-                  {[8, 16, 32, 64, 128].map((size) => (
+                  {[2, 4, 8, 16, 32, 64].map((size) => (
                     <SelectItem key={size} value={size.toString()} className="text-white hover:bg-slate-700 rounded">
                       {size} Players
                     </SelectItem>
                   ))}
+                  {/* Custom option for flexible tournament types */}
+                  {(formData.tournamentType === 'round_robin' ||
+                    formData.tournamentType === 'group_stage' ||
+                    formData.tournamentType === 'custom') && (
+                    <SelectItem value="custom" className="text-white hover:bg-slate-700 rounded">
+                      <div className="flex items-center gap-2">
+                        <Star className="w-4 h-4 text-purple-400" />
+                        Custom Number
+                      </div>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+
+              {/* Custom input field when "custom" is selected */}
+              {formData.bracketSize === 'custom' && (
+                <div className="mt-3">
+                  <Label htmlFor="customPlayerCount" className="text-gray-300 font-medium text-sm">
+                    Enter Custom Player Count
+                  </Label>
+                  <input
+                    type="number"
+                    id="customPlayerCount"
+                    value={formData.customPlayerCount || ''}
+                    onChange={(e) => updateFormData({ customPlayerCount: e.target.value })}
+                    placeholder="Enter number of players..."
+                    min="2"
+                    max="128"
+                    className="mt-1 w-full bg-slate-700/50 border-slate-600/50 text-white placeholder:text-gray-500 focus:border-purple-500 focus:ring-purple-500/20 rounded-lg px-3 py-2 h-12"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    {formData.tournamentType === 'round_robin' && 'Round Robin supports any number of players (2-128)'}
+                    {formData.tournamentType === 'group_stage' && 'Group Stage supports flexible player counts based on group configuration'}
+                    {formData.tournamentType === 'custom' && 'Custom format allows any player count (2-128)'}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">

@@ -15,7 +15,7 @@ import {
 import { useState } from "react"
 import TournamentSettings from "./tournament-settings"
 
-export function TournamentDashboard({ tournament, matchResults, disputes, user }) {
+export function TournamentDashboard({ tournament, matchResults, disputes, user, isAdmin = false }) {
   const [selectedMatch, setSelectedMatch] = useState(null)
   const [showScreenshots, setShowScreenshots] = useState(false)
   const [adminDecision, setAdminDecision] = useState("")
@@ -103,6 +103,13 @@ export function TournamentDashboard({ tournament, matchResults, disputes, user }
             <p className="text-slate-400">Tournament Dashboard</p>
           </div>
           <div className="flex items-center gap-3">
+            <a
+              href={`/tournaments/${currentTournament.id}/results`}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <BarChart3 className="w-4 h-4" />
+              Results Management
+            </a>
             <span
               className={`px-3 py-1 rounded-full text-sm border ${
                 currentTournament.status === "active"
@@ -131,7 +138,7 @@ export function TournamentDashboard({ tournament, matchResults, disputes, user }
               <div className="flex justify-between">
                 <span className="text-slate-400">Participants:</span>
                 <span className="text-white">
-                  {currentTournament.current_participants || 0}/{currentTournament.max_participants}
+                  {currentTournament.tournament_participants?.length || currentTournament.current_participants || 0}/{currentTournament.max_participants}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -168,11 +175,31 @@ export function TournamentDashboard({ tournament, matchResults, disputes, user }
               <h3 className="font-semibold text-white">Recent Activity</h3>
             </div>
             <div className="space-y-2 text-sm">
+              {disputes && disputes.length > 0 ? (
+                <div className="space-y-1">
+                  {disputes
+                    .filter(dispute => dispute.status === "open")
+                    .slice(0, 3)
+                    .map(dispute => (
+                      <div key={dispute.id} className="flex items-center gap-2 text-red-400">
+                        <Flag className="w-3 h-3" />
+                        <span className="text-xs">
+                          Dispute raised in Round {dispute.matches?.round} - {dispute.reason.slice(0, 30)}
+                          {dispute.reason.length > 30 ? '...' : ''}
+                        </span>
+                      </div>
+                    ))}
+                  {disputes.filter(d => d.status === "open").length > 3 && (
+                    <div className="text-xs text-slate-400 ml-5">
+                      +{disputes.filter(d => d.status === "open").length - 3} more disputes
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-slate-300">No disputes</div>
+              )}
               <div className="text-slate-300">
                 {matchResults.length > 0 ? `${matchResults.length} match results submitted` : "No recent activity"}
-              </div>
-              <div className="text-slate-300">
-                {disputes.length > 0 ? `${disputes.length} disputes filed` : "No disputes"}
               </div>
             </div>
           </div>
@@ -240,13 +267,20 @@ export function TournamentDashboard({ tournament, matchResults, disputes, user }
           <h2 className="text-xl font-semibold text-white">Tournament Seeding</h2>
           <div className="flex items-center gap-3">
             <span
-              className={`px-3 py-1 rounded-full text-sm border ${
+              className={`px-3 py-1 rounded-full text-sm border flex items-center gap-1 ${
                 currentTournament.bracket_generated
                   ? "bg-green-500/20 text-green-400 border-green-500/30"
                   : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
               }`}
             >
-              {currentTournament.bracket_generated ? "Bracket Generated" : "Awaiting Seeding"}
+              {currentTournament.bracket_generated ? (
+                <>
+                  <CheckCircle className="w-4 h-4" />
+                  Seeded
+                </>
+              ) : (
+                "Awaiting Seeding"
+              )}
             </span>
           </div>
         </div>
@@ -261,7 +295,7 @@ export function TournamentDashboard({ tournament, matchResults, disputes, user }
               <div className="flex justify-between">
                 <span className="text-slate-400">Registered Players:</span>
                 <span className="text-white">
-                  {currentTournament.current_participants || 0}/{currentTournament.max_participants}
+                  {currentTournament.tournament_participants?.length || currentTournament.current_participants || 0}/{currentTournament.max_participants}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -468,27 +502,29 @@ export function TournamentDashboard({ tournament, matchResults, disputes, user }
         </div>
       )}
 
-      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-        <h2 className="text-xl font-semibold text-white mb-4">Tournament Timeline & Logs</h2>
-        <div className="space-y-3">
-          {tournament.logs?.map((log) => (
-            <div key={log.id} className="flex items-start gap-3 p-3 bg-slate-700/20 rounded">
-              <div className="w-2 h-2 bg-blue-400 rounded-full mt-2"></div>
-              <div className="flex-1">
-                <p className="text-white text-sm">{log.description}</p>
-                <p className="text-slate-400 text-xs mt-1">{new Date(log.created_at).toLocaleString()}</p>
+      {isAdmin && (
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
+          <h2 className="text-xl font-semibold text-white mb-4">Tournament Timeline & Logs</h2>
+          <div className="space-y-3">
+            {tournament.logs?.map((log) => (
+              <div key={log.id} className="flex items-start gap-3 p-3 bg-slate-700/20 rounded">
+                <div className="w-2 h-2 bg-blue-400 rounded-full mt-2"></div>
+                <div className="flex-1">
+                  <p className="text-white text-sm">{log.description}</p>
+                  <p className="text-slate-400 text-xs mt-1">{new Date(log.created_at).toLocaleString()}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
 
-          {(!tournament.logs || tournament.logs.length === 0) && (
-            <div className="text-center py-8 text-slate-400">
-              <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>No tournament activity yet</p>
-            </div>
-          )}
+            {(!tournament.logs || tournament.logs.length === 0) && (
+              <div className="text-center py-8 text-slate-400">
+                <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p>No tournament activity yet</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <TournamentSettings
         tournament={currentTournament}

@@ -8,10 +8,33 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { supabase } from "@/lib/supabase/client"
+import { createClient } from "@/lib/supabase/client"
 import { Trophy, Users, Clock, CheckCircle, XCircle, Upload } from "lucide-react"
+import { toast } from "sonner" // add toast for success/error feedback
+// ... existing code ...
 
 export default function TournamentBracket({ tournamentId, tournamentType, isOrganizer = false }) {
+  // Early validation of required props
+  if (!tournamentId || tournamentId === 'undefined' || tournamentId === 'null') {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Trophy className="w-6 h-6 text-yellow-500" />
+            Tournament Bracket
+          </h2>
+        </div>
+        <Card>
+          <CardContent className="text-center py-8">
+            <Trophy className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-600 mb-2">Invalid Tournament</h3>
+            <p className="text-gray-500">Tournament information is missing or invalid.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   const [matches, setMatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedMatch, setSelectedMatch] = useState(null)
@@ -24,9 +47,13 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     player1_score: 0,
     player2_score: 0,
     screenshot_url: '',
-    match_room_code: '',
+    // match_room_code moved to dedicated state below to avoid cross-triggering
     notes: ''
   })
+  const [matchCode, setMatchCode] = useState("") // dedicated state for match code
+  const [sendingCode, setSendingCode] = useState(false)
+  const supabase = createClient()
+  // ... existing code ...
 
   useEffect(() => {
     fetchMatches()
@@ -88,12 +115,14 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     return () => subscription.unsubscribe()
   }, [])
 
+  // ... existing code ...
   const fetchMatches = async () => {
     try {
-      // Add safety check for tournamentId
-      if (!tournamentId) {
-        console.error('Tournament ID is required to fetch matches')
+      // Add comprehensive safety checks for tournamentId
+      if (!tournamentId || tournamentId === 'undefined' || tournamentId === 'null') {
+        console.warn('Invalid or missing tournament ID, skipping match fetch:', tournamentId)
         setMatches([])
+        setLoading(false)
         return
       }
 
@@ -144,6 +173,78 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     }
   }
 
+  // Generate bracket using server-side seeding (for more accurate tournament generation)
+  const generateBracket = async () => {
+    if (!isOrganizer || !tournamentId) return
+    try {
+      const res = await fetch(`/api/tournaments/${tournamentId}/generate-bracket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        toast.error(data.error || 'Failed to generate bracket')
+        return
+      }
+      toast.success('Bracket generated using seeding')
+      await fetchMatches()
+    } catch (e) {
+      console.error('Generate bracket error:', e)
+      toast.error('Failed to generate bracket')
+    }
+  }
+
+  // Send match code without affecting results
+  const handleSendMatchCode = async () => {
+    try {
+      setSendingCode(true)
+
+      if (!user) {
+        toast.error('Please log in to send a match code.')
+        return
+      }
+      if (!selectedMatch || !matchCode.trim()) {
+        toast.error('Enter a valid match code.')
+        return
+      }
+
+      // Identify opponent for notification
+      const isPlayer1 = selectedMatch.player1_id === user?.id
+      const isPlayer2 = selectedMatch.player2_id === user?.id
+      if (!isPlayer1 && !isPlayer2 && !isOrganizer) {
+        toast.error('Only participants can send match codes.')
+        return
+      }
+      const opponentId = isPlayer1 ? selectedMatch.player2_id : selectedMatch.player1_id
+
+      // Hit a dedicated endpoint that stores the code and notifies opponent
+      const res = await fetch(`/api/matches/${selectedMatch.id}/send-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          match_room_code: matchCode.trim(),
+          opponent_id: opponentId,
+        }),
+      })
+      const data = await res.json()
+
+      if (res.ok && data.success) {
+        toast.success('Match code sent to your opponent.')
+        setSelectedMatch(null)
+        setMatchCode("")
+      } else {
+        toast.error(data.error || 'Failed to send match code.')
+      }
+    } catch (err) {
+      console.error('Send match code error:', err)
+      toast.error('Could not send match code.')
+    } finally {
+      setSendingCode(false)
+    }
+  }
+
+  // Report results (completely separate from sending code)
   const handleReportResult = async () => {
     try {
       setReportingResult(true)
@@ -228,21 +329,27 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
           'Content-Type': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify(resultForm)
+        body: JSON.stringify({
+          winner_id: resultForm.winner_id,
+          player1_score: resultForm.player1_score,
+          player2_score: resultForm.player2_score,
+          screenshot_url: resultForm.screenshot_url,
+          notes: resultForm.notes,
+        })
       })
 
       const result = await response.json()
 
       if (result.success) {
-        alert(result.message)
-        fetchMatches() // Refresh matches
+        toast.success('Result submitted for review.')
+        // Refresh matches so Results Management reflects new data (it reads from DB)
+        await fetchMatches()
         setSelectedMatch(null)
         setResultForm({
           winner_id: '',
           player1_score: 0,
           player2_score: 0,
           screenshot_url: '',
-          match_room_code: '',
           notes: ''
         })
       } else {
@@ -252,14 +359,14 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
             window.location.reload()
           }
         } else if (result.error === 'Insufficient permissions') {
-          alert('You do not have permission to report results for this match.')
+          toast.error('You do not have permission to report results for this match.')
         } else {
-          alert(result.error || 'Failed to report result')
+          toast.error(result.error || 'Failed to report result.')
         }
       }
     } catch (error) {
       console.error('Error reporting result:', error)
-      alert('Failed to report result. Please check your internet connection and try again.')
+      toast.error('Failed to report result. Please check your internet connection and try again.')
     } finally {
       setReportingResult(false)
     }
@@ -267,6 +374,8 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
 
   const openMatchDialog = (match) => {
     setSelectedMatch(match)
+    setActiveTab('match-code')
+    setMatchCode("") // ensure code is isolated
     setResultForm({
       winner_id: '',
       player1_score: 0,
@@ -276,114 +385,8 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     })
   }
 
-  const renderMatch = (match) => {
-    const isCompleted = match.status === 'completed'
-    const isPending = match.status === 'pending'
-    const hasPlayers = match.player1_id && match.player2_id
-
-    return (
-      <Card
-        key={match.id}
-        className={`relative cursor-pointer transition-all duration-200 hover:shadow-md ${
-          isCompleted 
-            ? 'bg-green-50 border-green-200' 
-            : isPending && hasPlayers 
-              ? 'bg-blue-50 border-blue-200' 
-              : 'bg-gray-50 border-gray-200'
-        }`}
-        onClick={() => hasPlayers && openMatchDialog(match)}
-      >
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <Badge variant={isCompleted ? 'success' : isPending ? 'default' : 'secondary'}>
-              {match.match_type === 'final' ? 'Final' :
-               match.match_type === 'grand_final' ? 'Grand Final' :
-               `Round ${match.round}`}
-            </Badge>
-            <span className="text-sm text-gray-500">Match #{match.match_number}</span>
-          </div>
-
-          <div className="space-y-3">
-            {/* Player 1 */}
-            <div className={`flex items-center justify-between p-2 rounded ${
-              match.winner_id === match.player1_id ? 'bg-green-100' : 'bg-gray-100'
-            }`}>
-              <div className="flex items-center space-x-2">
-                {match.winner_id === match.player1_id && (
-                  <Trophy className="w-4 h-4 text-yellow-500" />
-                )}
-                <span className="font-medium">
-                  {match.player1?.full_name || match.player1?.username || 'TBD'}
-                </span>
-              </div>
-              {isCompleted && (
-                <span className="text-lg font-bold">{match.player1_score}</span>
-              )}
-            </div>
-
-            {/* VS Divider */}
-            <div className="text-center text-gray-400 text-sm font-medium">VS</div>
-
-            {/* Player 2 */}
-            <div className={`flex items-center justify-between p-2 rounded ${
-              match.winner_id === match.player2_id ? 'bg-green-100' : 'bg-gray-100'
-            }`}>
-              <div className="flex items-center space-x-2">
-                {match.winner_id === match.player2_id && (
-                  <Trophy className="w-4 h-4 text-yellow-500" />
-                )}
-                <span className="font-medium">
-                  {match.player2?.full_name || match.player2?.username || 'TBD'}
-                </span>
-              </div>
-              {isCompleted && (
-                <span className="text-lg font-bold">{match.player2_score}</span>
-              )}
-            </div>
-          </div>
-
-          {/* Match Status */}
-          <div className="mt-3 flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              {isCompleted ? (
-                <CheckCircle className="w-4 h-4 text-green-500" />
-              ) : isPending && hasPlayers ? (
-                <Clock className="w-4 h-4 text-blue-500" />
-              ) : (
-                <XCircle className="w-4 h-4 text-gray-400" />
-              )}
-              <span className="text-sm text-gray-600">
-                {isCompleted
-                  ? 'Completed'
-                  : isPending && hasPlayers
-                    ? 'Pending'
-                    : 'Awaiting Players'
-                }
-              </span>
-            </div>
-
-            {match.completed_at && (
-              <span className="text-xs text-gray-400">
-                {new Date(match.completed_at).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
+  // Render tournament bracket organized by rounds
   const renderBracket = () => {
-    if (tournamentType === 'round_robin') {
-      return renderRoundRobinView()
-    } else if (tournamentType === 'group_stage') {
-      return renderGroupStageView()
-    } else {
-      return renderEliminationBracket()
-    }
-  }
-
-  const renderEliminationBracket = () => {
     const rounds = {}
     matches.forEach(match => {
       if (!rounds[match.round]) {
@@ -393,17 +396,75 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     })
 
     return (
-      <div className="space-y-8">
-        {Object.entries(rounds).map(([roundNum, roundMatches]) => (
-          <div key={roundNum} className="space-y-4">
-            <h3 className="text-lg font-semibold text-center">
-              {roundNum == Math.max(...Object.keys(rounds))
-                ? 'Final'
-                : `Round ${roundNum}`
-              }
-            </h3>
+      <div className="space-y-6">
+        {Object.entries(rounds).map(([round, roundMatches]) => (
+          <div key={round} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
+            <h3 className="text-xl font-semibold text-white mb-4">Round {round}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {roundMatches.map(renderMatch)}
+              {roundMatches.map(match => {
+                const getMatchStatus = (match) => {
+                  if (match.status === "completed" && match.winner_id) {
+                    return { status: "completed", color: "text-green-400", label: "Completed" }
+                  }
+                  if (match.status === "ongoing") {
+                    return { status: "ongoing", color: "text-blue-400", label: "Ongoing" }
+                  }
+                  return { status: "pending", color: "text-gray-400", label: "Pending" }
+                }
+
+                const matchStatus = getMatchStatus(match)
+                const canInteract = match.player1 && match.player2 && (
+                  match.player1_id === user?.id ||
+                  match.player2_id === user?.id ||
+                  isOrganizer
+                )
+
+                return (
+                  <div key={match.id} className="bg-slate-700/30 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <div className="text-sm text-slate-400">Match {match.match_number}</div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-slate-400" />
+                            <span className={`text-sm ${match.winner_id === match.player1_id ? 'text-green-400 font-semibold' : 'text-white'}`}>
+                              {match.player1?.username || match.player1?.full_name || "TBD"}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 ml-6">vs</div>
+                          <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-slate-400" />
+                            <span className={`text-sm ${match.winner_id === match.player2_id ? 'text-green-400 font-semibold' : 'text-white'}`}>
+                              {match.player2?.username || match.player2?.full_name || "TBD"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-xs ${matchStatus.color}`}>
+                          {matchStatus.label}
+                        </span>
+                        {match.winner_id && match.winner && (
+                          <div className="flex items-center gap-1 text-green-400 text-xs mt-1">
+                            <Trophy className="w-3 h-3" />
+                            Winner: {match.winner.username || match.winner.full_name}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {canInteract && match.status !== "completed" && (
+                      <button
+                        onClick={() => openMatchDialog(match)}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm flex items-center justify-center gap-2"
+                      >
+                        <Clock className="w-4 h-4" />
+                        Manage Match
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         ))}
@@ -411,53 +472,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     )
   }
 
-  const renderRoundRobinView = () => {
-    return (
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Round Robin Matches</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {matches.map(renderMatch)}
-        </div>
-      </div>
-    )
-  }
-
-  const renderGroupStageView = () => {
-    const groups = {}
-    matches.forEach(match => {
-      const groupName = match.group_id || 'knockout'
-      if (!groups[groupName]) {
-        groups[groupName] = []
-      }
-      groups[groupName].push(match)
-    })
-
-    return (
-      <div className="space-y-8">
-        {Object.entries(groups).map(([groupName, groupMatches]) => (
-          <div key={groupName} className="space-y-4">
-            <h3 className="text-lg font-semibold">
-              {groupName === 'knockout' ? 'Knockout Stage' : `Group ${groupName}`}
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {groupMatches.map(renderMatch)}
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading tournament bracket...</p>
-        </div>
-      </div>
-    )
-  }
+// ... existing code ...
 
   return (
     <div className="space-y-6">
@@ -469,6 +484,11 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
         <div className="flex items-center gap-2">
           <Users className="w-4 h-4 text-gray-500" />
           <span className="text-sm text-gray-600">{matches.length} matches</span>
+          {isOrganizer && (
+            <Button variant="outline" onClick={generateBracket} className="ml-2">
+              Generate Bracket
+            </Button>
+          )}
         </div>
       </div>
 
@@ -479,7 +499,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
             <h3 className="text-lg font-semibold text-gray-600 mb-2">No Matches Yet</h3>
             <p className="text-gray-500">Tournament bracket hasn't been generated yet.</p>
             {isOrganizer && (
-              <Button className="mt-4">Generate Bracket</Button>
+              <Button className="mt-4" onClick={generateBracket}>Generate Bracket</Button>
             )}
           </CardContent>
         </Card>
@@ -487,13 +507,14 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
         renderBracket()
       )}
 
-      {/* Match Result Dialog */}
+// ... existing code ...
+
       <Dialog open={selectedMatch !== null} onOpenChange={() => {
         setSelectedMatch(null)
         setActiveTab('match-code')
       }}>
         <DialogContent className="max-w-md">
-          {selectedMatch && (
+          {selectedMatch && selectedMatch.player1 && selectedMatch.player2 && (
             <div className="space-y-4">
               {/* Tab Navigation */}
               <div className="flex rounded-lg bg-gray-100 p-1">
@@ -532,14 +553,14 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
                     <Label>Match Room Code <span className="text-red-500">*</span></Label>
                     <Input
                       type="text"
-                      value={resultForm.match_room_code}
-                      onChange={(e) => setResultForm(prev => ({ ...prev, match_room_code: e.target.value }))}
+                      value={matchCode}
+                      onChange={(e) => setMatchCode(e.target.value)}
                       placeholder="Enter match room code"
                       maxLength="20"
                       className="text-center"
                     />
                     <p className="text-sm text-gray-500">
-                      Both players must provide their match room codes before the match can begin.
+                      Send your room code. Your opponent will receive a notification.
                     </p>
                   </div>
 
@@ -552,11 +573,11 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
                       Cancel
                     </Button>
                     <Button
-                      onClick={handleReportResult}
-                      disabled={!resultForm.match_room_code?.trim() || reportingResult || !user || authLoading}
+                      onClick={handleSendMatchCode}
+                      disabled={!matchCode?.trim() || sendingCode || !user || (authLoading ?? false)}
                       className="flex-1 bg-gray-700 hover:bg-gray-800"
                     >
-                      {reportingResult ? 'Sending...' : 'Send Code'}
+                      {sendingCode ? 'Sending...' : 'Send Code'}
                     </Button>
                   </div>
                 </>
@@ -592,7 +613,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
                       <Label>Player 1 Score</Label>
                       <Input
                         type="number"
-                        value={resultForm.player1_score}
+                        value={resultForm?.player1_score ?? 0}
                         onChange={(e) => setResultForm(prev => ({ ...prev, player1_score: parseInt(e.target.value) || 0 }))}
                         min="0"
                       />
@@ -601,7 +622,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
                       <Label>Player 2 Score</Label>
                       <Input
                         type="number"
-                        value={resultForm.player2_score}
+                        value={resultForm?.player2_score ?? 0}
                         onChange={(e) => setResultForm(prev => ({ ...prev, player2_score: parseInt(e.target.value) || 0 }))}
                         min="0"
                       />
@@ -692,7 +713,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
                       disabled={!resultForm.winner_id || !resultForm.screenshot_url || reportingResult || !user || authLoading}
                       className="flex-1 bg-gray-700 hover:bg-gray-800"
                     >
-                      {reportingResult ? 'Sending...' : 'Send Code'}
+                      {reportingResult ? 'Submitting...' : 'Submit Result'}
                     </Button>
                   </div>
                 </>
@@ -703,4 +724,5 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       </Dialog>
     </div>
   )
+// ... existing code ...
 }
