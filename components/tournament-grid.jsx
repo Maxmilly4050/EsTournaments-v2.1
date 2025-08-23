@@ -1,6 +1,12 @@
-import { Calendar, Users, Trophy, Play, Eye } from "lucide-react"
+import { Calendar, Users, Trophy, Play, Eye, MoreVertical } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export function TournamentGrid({ tournaments }) {
   const getStatusColor = (status) => {
@@ -31,9 +37,9 @@ export function TournamentGrid({ tournaments }) {
       {tournaments.map((tournament) => (
         <div
           key={tournament.id}
-          className="bg-slate-800 rounded-lg overflow-hidden hover:bg-slate-700 transition-all duration-200 group"
+          className="bg-slate-800/80 glass-effect rounded-xl hover:bg-slate-700/90 hover-lift transition-all duration-300 group border border-slate-700/50 hover:border-purple-500/50 relative"
         >
-          <div className="relative">
+          <div className="relative overflow-hidden rounded-t-xl">
             <img
               src={`/abstract-geometric-shapes.png?height=200&width=400&query=${tournament.game} tournament`}
               alt={tournament.name}
@@ -49,7 +55,7 @@ export function TournamentGrid({ tournaments }) {
             {(tournament.status === "ongoing" || tournament.status === "completed") && (
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
                 <Link href={`/tournaments/${tournament.id}/bracket`}>
-                  <Button className="bg-purple-600 hover:bg-purple-700 text-white text-sm md:text-base">
+                  <Button className="bg-purple-600 hover:bg-purple-700 text-white text-sm md:text-base animate-glow hover-lift">
                     <Play className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" />
                     View Bracket
                   </Button>
@@ -83,7 +89,8 @@ export function TournamentGrid({ tournaments }) {
             </div>
 
             <div className="flex items-center justify-between mb-3 md:mb-4">
-              <div className="flex items-center gap-1 md:gap-2">
+              {/* Desktop: Show buttons inline */}
+              <div className="hidden sm:flex items-center gap-1 md:gap-2">
                 <Link href={`/tournaments/${tournament.id}`}>
                   <Button
                     size="sm"
@@ -96,13 +103,51 @@ export function TournamentGrid({ tournaments }) {
                 </Link>
                 {(tournament.status === "ongoing" || tournament.status === "completed") && (
                   <Link href={`/tournaments/${tournament.id}/bracket`}>
-                    <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-xs md:text-sm px-2 md:px-3">
+                    <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-xs md:text-sm px-2 md:px-3 hover-lift" aria-label={`View bracket for ${tournament.name}`}>
                       <Play className="w-3 h-3 mr-1" />
                       Bracket
                     </Button>
                   </Link>
                 )}
               </div>
+
+              {/* Mobile: Show dropdown for actions */}
+              <div className="sm:hidden">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-600 text-slate-300 hover:bg-slate-600 bg-transparent px-2 touch-target"
+                      aria-label="Tournament actions"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    side="bottom"
+                    sideOffset={8}
+                    className="bg-slate-700 border-slate-600 shadow-xl z-[60] min-w-[160px]"
+                  >
+                    <DropdownMenuItem asChild className="text-gray-300 hover:text-white hover:bg-slate-600">
+                      <Link href={`/tournaments/${tournament.id}`} className="flex items-center w-full">
+                        <Eye className="w-4 h-4 mr-2" />
+                        View Details
+                      </Link>
+                    </DropdownMenuItem>
+                    {(tournament.status === "ongoing" || tournament.status === "completed") && (
+                      <DropdownMenuItem asChild className="text-gray-300 hover:text-white hover:bg-slate-600">
+                        <Link href={`/tournaments/${tournament.id}/bracket`} className="flex items-center w-full">
+                          <Play className="w-4 h-4 mr-2" />
+                          View Bracket
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
               <span className="text-xs text-gray-400 font-medium">{tournament.game}</span>
             </div>
 

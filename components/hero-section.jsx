@@ -109,11 +109,22 @@ export function HeroSection() {
   }
 
   return (
-    <section className="relative bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 py-20">
-      <div className="container mx-auto px-4 text-center">
+    <section className="relative overflow-hidden bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 py-20">
+      {/* Animated background pattern */}
+      <div className="absolute inset-0 opacity-20">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500/10 to-transparent animate-pulse"></div>
+        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_20%_50%,rgba(120,119,198,0.3),transparent_50%)] animate-pulse"></div>
+      </div>
+
+      {/* Floating gradient orbs */}
+      <div className="absolute top-20 left-10 w-72 h-72 bg-blue-500/20 rounded-full blur-3xl animate-float"></div>
+      <div className="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-float-delayed"></div>
+      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-pink-500/10 rounded-full blur-2xl animate-pulse"></div>
+
+      <div className="container mx-auto px-4 text-center relative z-10">
         <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
           Compete in Epic
-          <span className="text-blue-400 block">Gaming Tournaments</span>
+          <span className="gradient-text block">Gaming Tournaments</span>
         </h1>
         <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
           Join thousands of players in competitive tournaments across your favorite games. Win prizes, climb
@@ -163,7 +174,7 @@ export function HeroSection() {
             )}
           </div>
           <Link href="/tournaments">
-            <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-8">
+            <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-8 animate-glow hover-lift">
               Browse Tournaments
             </Button>
           </Link>

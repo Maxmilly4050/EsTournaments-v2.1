@@ -293,12 +293,18 @@ export function TournamentSection({ title, status, limit = 6 }) {
   }
 
   return (
-    <section className="py-12 px-4">
+    <section className="py-12 px-4 bg-gradient-to-b from-slate-800 to-slate-900">
       <div className="container mx-auto">
         <div className="flex items-center justify-between mb-8">
-          <h2 className="text-2xl font-bold text-white">{title || "Tournaments"}</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-white">
+            {title ? title.split(' ').map((word, index) =>
+              index === title.split(' ').length - 1 ?
+                <span key={index} className="gradient-text">{word}</span> :
+                <span key={index}>{word} </span>
+            ) : "Tournaments"}
+          </h2>
           <Link href="/tournaments">
-            <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent">
+            <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-700 bg-transparent hover-lift" aria-label="Browse all tournaments">
               Browse tournaments
             </Button>
           </Link>

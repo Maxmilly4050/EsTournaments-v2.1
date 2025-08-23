@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Menu, Plus, User, LogOut, Shield, Trophy } from "lucide-react"
+import { Search, Menu, Plus, User, LogOut, Shield, Trophy, X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
 import { signOut } from "@/lib/actions"
@@ -16,6 +16,7 @@ import {
 import { useRouter } from "next/navigation"
 import { useTransition, useEffect, useState, useRef } from "react"
 import NotificationCenter from "./notifications"
+import { createPortal } from "react-dom"
 
 const ADMIN_USER_IDS = process.env.NEXT_PUBLIC_ADMIN_USER_IDS
   ? process.env.NEXT_PUBLIC_ADMIN_USER_IDS.split(",").map((id) => id.trim())
@@ -55,6 +56,7 @@ export function Header() {
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const searchRef = useRef(null)
   const supabase = createClient()
   const router = useRouter()
@@ -315,14 +317,19 @@ export function Header() {
                       <User className="w-5 h-5" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                    <DropdownMenuItem asChild className="text-gray-300 hover:text-white hover:bg-slate-700">
+                  <DropdownMenuContent
+                    align="end"
+                    side="bottom"
+                    sideOffset={8}
+                    className="bg-slate-700 border-slate-600 shadow-xl z-[60] min-w-[180px]"
+                  >
+                    <DropdownMenuItem asChild className="text-gray-300 hover:text-white hover:bg-slate-600">
                       <Link href="/profile" className="flex items-center">
                         <User className="w-4 h-4 mr-2" />
                         Profile
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild className="text-gray-300 hover:text-white hover:bg-slate-700">
+                    <DropdownMenuItem asChild className="text-gray-300 hover:text-white hover:bg-slate-600">
                       <Link href="/my-tournaments" className="flex items-center">
                         <Trophy className="w-4 h-4 mr-2" />
                         My Tournaments
@@ -330,18 +337,15 @@ export function Header() {
                     </DropdownMenuItem>
 
                     {isAdmin && (
-                      <>
-                        <DropdownMenuSeparator className="bg-slate-700" />
-                        <DropdownMenuItem asChild className="text-red-300 hover:text-red-200 hover:bg-slate-700">
-                          <Link href="/admin" className="flex items-center">
-                            <Shield className="w-4 h-4 mr-2" />
-                            Admin Dashboard
-                          </Link>
-                        </DropdownMenuItem>
-                      </>
+                      <DropdownMenuItem asChild className="text-red-300 hover:text-red-200 hover:bg-slate-600">
+                        <Link href="/admin" className="flex items-center">
+                          <Shield className="w-4 h-4 mr-2" />
+                          Admin Dashboard
+                        </Link>
+                      </DropdownMenuItem>
                     )}
 
-                    <DropdownMenuSeparator className="bg-slate-700" />
+                    <DropdownMenuSeparator className="bg-slate-600" />
                     <DropdownMenuItem asChild>
                       <SignOutButton />
                     </DropdownMenuItem>
@@ -361,12 +365,170 @@ export function Header() {
               </div>
             )}
 
-            <Button variant="ghost" size="icon" className="md:hidden">
-              <Menu className="w-5 h-5" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden text-gray-300 hover:text-white"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </Button>
           </div>
         </div>
       </div>
+
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        createPortal(
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setMobileMenuOpen(false)} />
+          <div className="fixed right-0 top-0 h-full w-80 bg-blue-50 border-l border-blue-200 shadow-xl overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-blue-200">
+              <span className="text-gray-800 font-semibold text-lg">Menu</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setMobileMenuOpen(false)}
+                className="text-gray-600 hover:text-gray-800 touch-target"
+              >
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            <div className="p-6">
+              {/* Mobile Search */}
+              <div className="mb-6">
+                <div className="relative">
+                  <Input
+                    placeholder="Search tournaments..."
+                    className="w-full bg-white border-blue-300 text-gray-800 placeholder-gray-500 pr-12 h-12"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                  />
+                  <button
+                    onClick={handleSearch}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 touch-target"
+                  >
+                    <Search className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Mobile Navigation */}
+              <nav className="mb-6">
+                <div className="space-y-1">
+                  <Link
+                    href="/tournaments"
+                    className="flex items-center px-4 py-3 text-gray-700 hover:text-gray-900 hover:bg-blue-100 rounded-lg transition-colors touch-target"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <Trophy className="w-5 h-5 mr-3 text-blue-600" />
+                    <span className="font-medium">Tournaments</span>
+                  </Link>
+                  <Link
+                    href="/games"
+                    className="flex items-center px-4 py-3 text-gray-700 hover:text-gray-900 hover:bg-blue-100 rounded-lg transition-colors touch-target"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <span className="w-5 h-5 mr-3 flex items-center justify-center text-blue-600 font-bold text-sm">G</span>
+                    <span className="font-medium">Games</span>
+                  </Link>
+                </div>
+              </nav>
+
+              {/* Mobile User Actions */}
+              {user ? (
+                <div className="border-t border-blue-200 pt-6">
+                  <div className="space-y-3">
+                    <Link
+                      href="/tournaments/create"
+                      className="block w-full"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white justify-start h-12 text-base">
+                        <Plus className="w-5 h-5 mr-3" />
+                        Create Tournament
+                      </Button>
+                    </Link>
+
+                    {isAdmin && (
+                      <Link
+                        href="/admin"
+                        className="block w-full"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        <Button className="w-full bg-red-600 hover:bg-red-700 text-white justify-start h-12 text-base">
+                          <Shield className="w-5 h-5 mr-3" />
+                          Admin Dashboard
+                        </Button>
+                      </Link>
+                    )}
+
+                    <div className="space-y-1 pt-2">
+                      <Link
+                        href="/profile"
+                        className="flex items-center px-4 py-3 text-gray-700 hover:text-gray-900 hover:bg-blue-100 rounded-lg transition-colors touch-target"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        <User className="w-5 h-5 mr-3 text-blue-600" />
+                        <span className="font-medium">Profile</span>
+                      </Link>
+
+                      <Link
+                        href="/my-tournaments"
+                        className="flex items-center px-4 py-3 text-gray-700 hover:text-gray-900 hover:bg-blue-100 rounded-lg transition-colors touch-target"
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        <Trophy className="w-5 h-5 mr-3 text-blue-600" />
+                        <span className="font-medium">My Tournaments</span>
+                      </Link>
+                    </div>
+
+                    <div className="border-t border-blue-200 pt-3 mt-3">
+                      <button
+                        onClick={() => {
+                          setMobileMenuOpen(false)
+                          handleSignOut()
+                        }}
+                        className="flex items-center w-full px-4 py-3 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors touch-target"
+                      >
+                        <LogOut className="w-5 h-5 mr-3" />
+                        <span className="font-medium">Sign Out</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="border-t border-blue-200 pt-6">
+                  <div className="space-y-3">
+                    <Link
+                      href="/auth/login"
+                      className="block w-full"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Button variant="outline" className="w-full border-blue-300 text-blue-600 hover:bg-blue-50 h-12 text-base">
+                        Log in
+                      </Button>
+                    </Link>
+                    <Link
+                      href="/auth/sign-up"
+                      className="block w-full"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 text-base">
+                        Sign up
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+        )
+      )}
     </header>
   )
 }
