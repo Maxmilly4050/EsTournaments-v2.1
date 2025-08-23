@@ -31,7 +31,7 @@ export async function GET(request) {
     const offset = parseInt(url.searchParams.get('offset') || '0')
     const unreadOnly = url.searchParams.get('unread_only') === 'true'
 
-    // Build query
+    // Build query - fetch notifications without joins to avoid PostgREST relationship issues
     let query = supabase
       .from('notifications')
       .select(`
@@ -43,16 +43,7 @@ export async function GET(request) {
         message,
         is_read,
         created_at,
-        scheduled_for,
-        tournaments (
-          id,
-          name
-        ),
-        matches (
-          id,
-          round,
-          match_number
-        )
+        scheduled_for
       `)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
@@ -69,6 +60,62 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 })
     }
 
+    // Fetch related tournament and match data separately to avoid relationship errors
+    const enrichedNotifications = []
+
+    if (notifications && notifications.length > 0) {
+      // Get unique tournament IDs and match IDs
+      const tournamentIds = [...new Set(notifications.filter(n => n.tournament_id).map(n => n.tournament_id))]
+      const matchIds = [...new Set(notifications.filter(n => n.match_id).map(n => n.match_id))]
+
+      // Fetch tournaments data
+      let tournamentsData = {}
+      if (tournamentIds.length > 0) {
+        const { data: tournaments, error: tournamentError } = await supabase
+          .from('tournaments')
+          .select('id, name')
+          .in('id', tournamentIds)
+
+        if (!tournamentError && tournaments) {
+          tournamentsData = tournaments.reduce((acc, tournament) => {
+            acc[tournament.id] = tournament
+            return acc
+          }, {})
+        }
+      }
+
+      // Fetch matches data
+      let matchesData = {}
+      if (matchIds.length > 0) {
+        const { data: matches, error: matchError } = await supabase
+          .from('matches')
+          .select('id, round, match_number')
+          .in('id', matchIds)
+
+        if (!matchError && matches) {
+          matchesData = matches.reduce((acc, match) => {
+            acc[match.id] = match
+            return acc
+          }, {})
+        }
+      }
+
+      // Enrich notifications with related data
+      for (const notification of notifications) {
+        const enrichedNotification = { ...notification }
+
+        if (notification.tournament_id && tournamentsData[notification.tournament_id]) {
+          enrichedNotification.tournaments = tournamentsData[notification.tournament_id]
+        }
+
+        if (notification.match_id && matchesData[notification.match_id]) {
+          enrichedNotification.matches = matchesData[notification.match_id]
+        }
+
+        enrichedNotifications.push(enrichedNotification)
+      }
+    }
+
     // Get unread count
     const { count: unreadCount, error: countError } = await supabase
       .from('notifications')
@@ -83,9 +130,9 @@ export async function GET(request) {
     return NextResponse.json({
       success: true,
       data: {
-        notifications: notifications || [],
+        notifications: enrichedNotifications || [],
         unread_count: unreadCount || 0,
-        total_fetched: notifications?.length || 0
+        total_fetched: enrichedNotifications?.length || 0
       }
     })
 
