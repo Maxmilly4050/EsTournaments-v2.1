@@ -6,7 +6,7 @@ import { cookies } from 'next/headers'
 export async function GET(request) {
   try {
     // Create authenticated Supabase client
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -149,7 +149,7 @@ export async function GET(request) {
 export async function PATCH(request) {
   try {
     // Create authenticated Supabase client
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -176,8 +176,7 @@ export async function PATCH(request) {
       const { error: updateError } = await supabase
         .from('notifications')
         .update({
-          is_read: true,
-          read_at: new Date().toISOString()
+          is_read: true
         })
         .eq('user_id', user.id)
         .eq('is_read', false)
@@ -187,17 +186,30 @@ export async function PATCH(request) {
         return NextResponse.json({ error: 'Failed to mark notifications as read' }, { status: 500 })
       }
 
+      // Get updated unread count after marking all as read
+      const { count: unreadCount, error: countError } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact' })
+        .eq('user_id', user.id)
+        .eq('is_read', false)
+
+      if (countError) {
+        console.error('Error getting unread count:', countError)
+      }
+
       return NextResponse.json({
         success: true,
-        message: 'All notifications marked as read'
+        message: 'All notifications marked as read',
+        data: {
+          unread_count: unreadCount || 0
+        }
       })
     } else if (notification_ids && Array.isArray(notification_ids)) {
       // Mark specific notifications as read
       const { error: updateError } = await supabase
         .from('notifications')
         .update({
-          is_read: true,
-          read_at: new Date().toISOString()
+          is_read: true
         })
         .eq('user_id', user.id)
         .in('id', notification_ids)
@@ -207,9 +219,23 @@ export async function PATCH(request) {
         return NextResponse.json({ error: 'Failed to mark notifications as read' }, { status: 500 })
       }
 
+      // Get updated unread count after marking specific notifications as read
+      const { count: unreadCount, error: countError } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact' })
+        .eq('user_id', user.id)
+        .eq('is_read', false)
+
+      if (countError) {
+        console.error('Error getting unread count:', countError)
+      }
+
       return NextResponse.json({
         success: true,
-        message: `${notification_ids.length} notification(s) marked as read`
+        message: `${notification_ids.length} notification(s) marked as read`,
+        data: {
+          unread_count: unreadCount || 0
+        }
       })
     } else {
       return NextResponse.json({
@@ -220,6 +246,79 @@ export async function PATCH(request) {
 
   } catch (error) {
     console.error('Error in notifications PATCH API:', error)
+    return NextResponse.json({
+      error: 'Internal server error',
+      details: error.message
+    }, { status: 500 })
+  }
+}
+
+// DELETE /api/notifications - Delete individual notifications
+export async function DELETE(request) {
+  try {
+    // Create authenticated Supabase client
+    const cookieStore = await cookies()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      {
+        cookies: {
+          get(name) {
+            return cookieStore.get(name)?.value
+          },
+        },
+      }
+    )
+
+    // Get current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { notification_ids } = body
+
+    if (!notification_ids || !Array.isArray(notification_ids) || notification_ids.length === 0) {
+      return NextResponse.json({
+        error: 'Invalid request',
+        details: 'Must provide notification_ids array with at least one ID'
+      }, { status: 400 })
+    }
+
+    // Delete specific notifications (only user's own notifications)
+    const { error: deleteError } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', user.id)
+      .in('id', notification_ids)
+
+    if (deleteError) {
+      console.error('Error deleting notifications:', deleteError)
+      return NextResponse.json({ error: 'Failed to delete notifications' }, { status: 500 })
+    }
+
+    // Get updated unread count
+    const { count: unreadCount, error: countError } = await supabase
+      .from('notifications')
+      .select('id', { count: 'exact' })
+      .eq('user_id', user.id)
+      .eq('is_read', false)
+
+    if (countError) {
+      console.error('Error getting unread count:', countError)
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `${notification_ids.length} notification(s) deleted`,
+      data: {
+        unread_count: unreadCount || 0
+      }
+    })
+
+  } catch (error) {
+    console.error('Error in notifications DELETE API:', error)
     return NextResponse.json({
       error: 'Internal server error',
       details: error.message

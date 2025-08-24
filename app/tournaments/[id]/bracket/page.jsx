@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export default async function TournamentBracketPage({ params }) {
+  const resolvedParams = await params
   const supabase = createClient()
   let tournament = null
   let user = null
@@ -49,7 +50,7 @@ export default async function TournamentBracketPage({ params }) {
           )
         )
       `)
-      .eq("id", params.id)
+      .eq("id", resolvedParams.id)
       .single()
 
     if (!error && tournamentData) {
@@ -200,13 +201,13 @@ export default async function TournamentBracketPage({ params }) {
       },
     }
 
-    tournament = fallbackTournaments[params.id]
+    tournament = fallbackTournaments[resolvedParams.id]
 
     if (!tournament) {
       // Create a default tournament if ID doesn't match
       tournament = {
-        id: Number.parseInt(params.id),
-        name: `Tournament ${params.id}`,
+        id: Number.parseInt(resolvedParams.id),
+        name: `Tournament ${resolvedParams.id}`,
         game: "eFootball 2026",
         status: "upcoming",
         max_participants: 16,

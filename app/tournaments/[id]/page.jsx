@@ -254,8 +254,10 @@ const getFallbackTournament = (id) => {
 }
 
 export default async function TournamentPage({ params }) {
+  const resolvedParams = await params
+
   // Only redirect if the ID is not numeric (but allow "create" to pass through to 404)
-  if (isNaN(Number(params.id))) {
+  if (isNaN(Number(resolvedParams.id))) {
     redirect("/tournaments")
   }
 
@@ -269,19 +271,19 @@ export default async function TournamentPage({ params }) {
 
     if (tableCheckError && tableCheckError.message.includes("does not exist")) {
       // Tables don't exist, use fallback data
-      tournament = getFallbackTournament(params.id)
+      tournament = getFallbackTournament(resolvedParams.id)
       usingFallback = true
     } else {
       const { data: tournamentData, error } = await supabase
         .from("tournaments")
         .select("*")
-        .eq("id", params.id)
+        .eq("id", resolvedParams.id)
         .single()
 
       if (error) {
         console.error("Database query error:", error)
         // If tournament not found in database, try fallback
-        tournament = getFallbackTournament(params.id)
+        tournament = getFallbackTournament(resolvedParams.id)
         usingFallback = true
       } else {
         // Get organizer profile separately
@@ -295,7 +297,7 @@ export default async function TournamentPage({ params }) {
         const { data: participants } = await supabase
           .from("tournament_participants")
           .select("id, user_id, joined_at")
-          .eq("tournament_id", params.id)
+          .eq("tournament_id", resolvedParams.id)
 
         // Get participant profiles
         let participantProfiles = []
@@ -325,7 +327,7 @@ export default async function TournamentPage({ params }) {
       user = null
     }
   } catch (error) {
-    tournament = getFallbackTournament(params.id)
+    tournament = getFallbackTournament(resolvedParams.id)
     usingFallback = true
   }
 

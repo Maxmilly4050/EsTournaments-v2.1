@@ -1,113 +1,120 @@
-// Test script to verify the async params fix
-console.log('🧪 Testing Async Params Fix');
-console.log('===========================');
+#!/usr/bin/env node
 
-console.log('\n1. Analyzing Fixed Implementation:');
-console.log('==================================');
+/**
+ * Test script to verify the params async access fix
+ * This script checks that the UserProfilePage component properly handles async params
+ */
 
-// Simulate the fixed component behavior
-function simulateAsyncParamsHandling(mockParams) {
-  console.log(`Testing with params: ${JSON.stringify(mockParams)}`);
+const fs = require('fs')
+const path = require('path')
 
-  try {
-    // Simulate the async params resolution
-    const resolveParamsLogic = async (params) => {
-      try {
-        // Handle params as promise (Next.js App Router pattern)
-        const resolvedParams = await params;
-        const id = resolvedParams.id;
+console.log('🧪 Testing Params Async Access Fix...\n')
 
-        if (id === "create" || isNaN(Number.parseInt(id))) {
-          return { success: false, reason: "invalid_id", shouldRedirect: true };
-        }
+// Test 1: Check if the main component is now async
+console.log('1. Checking component async structure...')
 
-        return { success: true, tournamentId: id };
-      } catch (error) {
-        return { success: false, reason: "params_error", error: error.message };
-      }
-    };
-
-    // Test the resolution logic
-    console.log('✅ Async params resolution implemented correctly');
-    console.log('✅ No synchronous access to params.id');
-    console.log('✅ Proper error handling for invalid params');
-
-    return { success: true };
-
-  } catch (error) {
-    console.log(`❌ Test failed: ${error.message}`);
-    return { success: false, error: error.message };
-  }
+const profilePath = path.join(__dirname, 'app/profile/[id]/page.jsx')
+if (!fs.existsSync(profilePath)) {
+  console.log('❌ Profile component not found')
+  process.exit(1)
 }
 
-console.log('\n2. Testing Different Parameter Scenarios:');
-console.log('=========================================');
+const profileContent = fs.readFileSync(profilePath, 'utf8')
 
-// Test cases for different params values
-const testCases = [
-  { params: Promise.resolve({ id: "123" }), description: "Valid tournament ID" },
-  { params: Promise.resolve({ id: "create" }), description: "Create route (should redirect)" },
-  { params: Promise.resolve({ id: "invalid" }), description: "Invalid ID (should redirect)" },
-  { params: Promise.resolve({ id: "456" }), description: "Another valid tournament ID" }
-];
+// Check for async function declaration
+const hasAsyncFunction = profileContent.includes('export default async function UserProfilePage')
+console.log(`${hasAsyncFunction ? '✅' : '❌'} Main component is declared as async`)
 
-testCases.forEach((testCase, index) => {
-  console.log(`\n--- Test ${index + 1}: ${testCase.description} ---`);
-  const result = simulateAsyncParamsHandling(testCase.params);
-  console.log(`Result: ${result.success ? 'PASSED' : 'FAILED'}`);
-});
+// Check for params await
+const hasParamsAwait = profileContent.includes('const resolvedParams = await params')
+console.log(`${hasParamsAwait ? '✅' : '❌'} Params are properly awaited`)
 
-console.log('\n3. Verifying Fixed Code Structure:');
-console.log('==================================');
+// Check for client component separation
+const hasClientComponent = profileContent.includes('function UserProfilePageClient({ userId })')
+console.log(`${hasClientComponent ? '✅' : '❌'} Client component separated for hooks usage`)
 
-console.log('✅ Added tournamentId state variable');
-console.log('✅ Implemented async params resolution in separate useEffect');
-console.log('✅ Updated all params.id references to use tournamentId');
-console.log('✅ Fixed useEffect dependency from params.id to tournamentId');
-console.log('✅ Added proper error handling for params resolution');
+// Check for proper prop passing
+const hasProperPropPassing = profileContent.includes('<UserProfilePageClient userId={resolvedParams.id} />')
+console.log(`${hasProperPropPassing ? '✅' : '❌'} UserId properly passed as prop`)
 
-console.log('\n4. Key Changes Made:');
-console.log('===================');
+// Test 2: Check that synchronous params access is removed
+console.log('\n2. Checking for synchronous params access...')
 
-const changes = [
-  'Line 17: Added tournamentId state variable',
-  'Lines 20-40: New useEffect for async params resolution',
-  'Line 42: Updated useEffect to depend on tournamentId',
-  'Line 68: Changed params.id to tournamentId in fallback data',
-  'Line 69: Changed params.id to tournamentId in title',
-  'Line 95: Changed params.id to tournamentId in database query',
-  'Line 105: Changed params.id to tournamentId in router redirect',
-  'Line 163: Updated useEffect dependency to tournamentId'
-];
+// Check that the old synchronous access pattern is removed
+const hasSyncAccess = profileContent.includes('const userId = params.id')
+console.log(`${!hasSyncAccess ? '✅' : '❌'} Synchronous params.id access removed`)
 
-changes.forEach((change, index) => {
-  console.log(`${index + 1}. ${change}`);
-});
+// Check that params is not accessed directly anywhere else
+const directParamsMatches = profileContent.match(/params\./g) || []
+const allowedParamsAccesses = profileContent.match(/resolvedParams\./g) || []
+console.log(`${directParamsMatches.length === 0 ? '✅' : '❌'} No direct params access found`)
+console.log(`${allowedParamsAccesses.length > 0 ? '✅' : '❌'} Resolved params used instead`)
 
-console.log('\n5. Expected Behavior After Fix:');
-console.log('===============================');
+// Test 3: Check that React hooks are properly used
+console.log('\n3. Checking React hooks usage...')
 
-console.log('✅ No more warnForSyncAccess warnings in console');
-console.log('✅ Dashboard loads correctly with async params handling');
-console.log('✅ Proper redirect behavior for invalid tournament IDs');
-console.log('✅ Tournament data fetches successfully');
-console.log('✅ Component follows Next.js App Router best practices');
+const hasUseState = profileContent.includes('useState')
+const hasUseEffect = profileContent.includes('useEffect')
+const hasUseRouter = profileContent.includes('useRouter')
 
-console.log('\n6. Next.js Compliance:');
-console.log('======================');
+console.log(`${hasUseState ? '✅' : '❌'} useState hooks preserved`)
+console.log(`${hasUseEffect ? '✅' : '❌'} useEffect hooks preserved`)
+console.log(`${hasUseRouter ? '✅' : '❌'} useRouter hook preserved`)
 
-console.log('✅ Params treated as Promise<{ id: string }>');
-console.log('✅ Async resolution using await params pattern');
-console.log('✅ No synchronous access to dynamic route parameters');
-console.log('✅ Proper loading states during params resolution');
-console.log('✅ Error handling for params resolution failures');
+// Test 4: Verify the component structure
+console.log('\n4. Verifying component structure...')
 
-console.log('\n🎯 VERIFICATION RESULTS:');
-console.log('========================');
-console.log('✅ All synchronous params access removed');
-console.log('✅ Async params handling properly implemented');
-console.log('✅ Component structure follows Next.js patterns');
-console.log('✅ Error handling and edge cases covered');
+// Check that the client component has all necessary props and state
+const hasAllState = profileContent.includes('const [currentUser, setCurrentUser]') &&
+                   profileContent.includes('const [profile, setProfile]') &&
+                   profileContent.includes('const [stats, setStats]') &&
+                   profileContent.includes('const [loading, setLoading]')
 
-console.log('\n🎉 The async params fix should resolve the warnForSyncAccess error!');
-console.log('Dashboard page should now work without warnings in Next.js App Router.');
+console.log(`${hasAllState ? '✅' : '❌'} All state variables preserved`)
+
+// Check that the UUID validation is still present
+const hasUUIDValidation = profileContent.includes('isValidUUID') &&
+                         profileContent.includes('uuidRegex')
+console.log(`${hasUUIDValidation ? '✅' : '❌'} UUID validation preserved`)
+
+// Summary
+console.log('\n📊 Summary:')
+const allChecks = [
+  hasAsyncFunction,
+  hasParamsAwait,
+  hasClientComponent,
+  hasProperPropPassing,
+  !hasSyncAccess,
+  directParamsMatches.length === 0,
+  allowedParamsAccesses.length > 0,
+  hasUseState,
+  hasUseEffect,
+  hasUseRouter,
+  hasAllState,
+  hasUUIDValidation
+]
+
+const passedChecks = allChecks.filter(Boolean).length
+console.log(`${passedChecks}/${allChecks.length} checks passed`)
+
+if (passedChecks === allChecks.length) {
+  console.log('🎉 All params async access fixes implemented successfully!')
+  console.log('\n✨ Fixes implemented:')
+  console.log('  • Main component converted to async function')
+  console.log('  • Params properly awaited before access')
+  console.log('  • Client component separated for React hooks usage')
+  console.log('  • All existing functionality preserved')
+  console.log('  • UUID validation and error handling maintained')
+  console.log('\n🔧 This should resolve:')
+  console.log('  • Next.js 15+ synchronous params access warnings')
+  console.log('  • warnForSyncAccess errors in browser console')
+  console.log('  • Compatibility with latest Next.js requirements')
+} else {
+  console.log('⚠️  Some fixes may be missing or incomplete')
+}
+
+console.log('\n🚀 Expected results:')
+console.log('✅ No more synchronous params access warnings')
+console.log('✅ Profile pages load without console errors')
+console.log('✅ Dynamic routes work properly in Next.js 15+')
+console.log('✅ All existing functionality preserved')

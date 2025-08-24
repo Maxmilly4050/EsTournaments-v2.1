@@ -12,11 +12,12 @@ export const metadata: Metadata = {
   title: "EsTournaments - Competitive Gaming Tournaments",
   description: "Join competitive gaming tournaments, win prizes and climb leaderboards",
   generator: "Next.js",
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-  }
+}
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 }
 
 export default function RootLayout({
