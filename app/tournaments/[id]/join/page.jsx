@@ -5,6 +5,7 @@ import TournamentJoinForm from "@/components/tournament-join-form"
 import Header from "@/components/header"
 
 export default async function JoinTournamentPage({ params }) {
+  const resolvedParams = await params
   const supabase = createClient()
 
   // Check if user is authenticated
@@ -31,7 +32,7 @@ export default async function JoinTournamentPage({ params }) {
           user_id
         )
       `)
-      .eq("id", params.id)
+      .eq("id", resolvedParams.id)
       .single()
 
     if (error) {
@@ -49,7 +50,7 @@ export default async function JoinTournamentPage({ params }) {
   )
 
   if (isAlreadyParticipant) {
-    redirect(`/tournaments/${params.id}`)
+    redirect(`/tournaments/${resolvedParams.id}`)
   }
 
   // Check if tournament is full

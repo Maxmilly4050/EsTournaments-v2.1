@@ -2,11 +2,12 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 
 export default async function AuthCallback({ searchParams }) {
+  const resolvedSearchParams = await searchParams
   const supabase = createClient()
 
-  if (searchParams.code) {
+  if (resolvedSearchParams.code) {
     try {
-      const { data, error } = await supabase.auth.exchangeCodeForSession(searchParams.code)
+      const { data, error } = await supabase.auth.exchangeCodeForSession(resolvedSearchParams.code)
 
       if (error) {
         console.error("Error exchanging code for session:", error)

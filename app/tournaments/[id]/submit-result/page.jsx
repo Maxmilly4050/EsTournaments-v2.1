@@ -5,6 +5,8 @@ import Header from "@/components/header"
 import MatchResultSubmission from "@/components/match-result-submission"
 
 export default async function SubmitResultPage({ params, searchParams }) {
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
   const supabase = createServerComponentClient({ cookies })
 
   const {
@@ -15,9 +17,9 @@ export default async function SubmitResultPage({ params, searchParams }) {
     redirect("/auth/login")
   }
 
-  const matchId = searchParams.matchId
+  const matchId = resolvedSearchParams.matchId
   if (!matchId) {
-    redirect(`/tournaments/${params.id}`)
+    redirect(`/tournaments/${resolvedParams.id}`)
   }
 
   // Get match details with player information
@@ -33,12 +35,12 @@ export default async function SubmitResultPage({ params, searchParams }) {
     .single()
 
   if (error || !match) {
-    redirect(`/tournaments/${params.id}`)
+    redirect(`/tournaments/${resolvedParams.id}`)
   }
 
   // Check if user is a participant in this match
   if (match.player1_id !== user.id && match.player2_id !== user.id) {
-    redirect(`/tournaments/${params.id}`)
+    redirect(`/tournaments/${resolvedParams.id}`)
   }
 
   return (
@@ -58,7 +60,7 @@ export default async function SubmitResultPage({ params, searchParams }) {
             user={user}
             onSubmissionComplete={() => {
               // Redirect back to tournament page after successful submission
-              window.location.href = `/tournaments/${params.id}`
+              window.location.href = `/tournaments/${resolvedParams.id}`
             }}
           />
         </div>
