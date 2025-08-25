@@ -634,18 +634,6 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       </div>
 
       {matches.length === 0 ? (
-<<<<<<< HEAD
-        <Card>
-          <CardContent className="text-center py-8">
-            <Trophy className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-600 mb-2">No Matches Yet</h3>
-            <p className="text-gray-500">Tournament bracket hasn't been generated yet.</p>
-            {isOrganizer && (
-              <Button className="mt-4" onClick={generateBracket}>Generate Bracket</Button>
-            )}
-          </CardContent>
-        </Card>
-=======
         <div className="flex items-center justify-center min-h-[500px]">
           <Card className="w-full max-w-2xl bg-slate-800 border-slate-700">
             <CardContent className="text-center py-12 px-8">
@@ -667,7 +655,6 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
             </CardContent>
           </Card>
         </div>
->>>>>>> 718c315 (Bracket UI fix)
       ) : (
         renderBracket()
       )}
