@@ -232,7 +232,7 @@ export default function NotificationCenter({ user }) {
                             </span>
                             {notification.tournaments?.name && (
                               <span className="text-xs text-gray-500 truncate max-w-24">
-                                {notification.tournaments.name}
+                                {notification.tournaments.title}
                               </span>
                             )}
                           </div>
