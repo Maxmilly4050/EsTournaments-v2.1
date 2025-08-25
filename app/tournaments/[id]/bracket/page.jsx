@@ -232,26 +232,28 @@ export default async function TournamentBracketPage({ params }) {
     <>
       <Header />
       <div className="min-h-screen bg-slate-900 pt-20 py-8">
-        {!tournament.profiles && (
-          <div className="mb-6 p-4 bg-amber-900/20 border border-amber-700 rounded-lg">
-            <p className="text-amber-300 text-sm">
-              ⚠️ Database not available. Showing sample bracket data for demonstration.
-            </p>
+        <div className="container mx-auto px-4 max-w-7xl">
+          {!tournament.profiles && (
+            <div className="mb-6 p-4 bg-amber-900/20 border border-amber-700 rounded-lg">
+              <p className="text-amber-300 text-sm">
+                ⚠️ Database not available. Showing sample bracket data for demonstration.
+              </p>
+            </div>
+          )}
+
+          <div className="mb-8">
+            <Link href={`/tournaments/${tournament.id}`}>
+              <Button variant="ghost" className="text-gray-300 hover:text-white mb-4">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Tournament
+              </Button>
+            </Link>
+            <h1 className="text-4xl font-bold text-white mb-2">{tournament.name}</h1>
+            <p className="text-gray-400">Tournament Bracket</p>
           </div>
-        )}
 
-        <div className="mb-8">
-          <Link href={`/tournaments/${tournament.id}`}>
-            <Button variant="ghost" className="text-gray-300 hover:text-white mb-4">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Tournament
-            </Button>
-          </Link>
-          <h1 className="text-4xl font-bold text-white mb-2">{tournament.name}</h1>
-          <p className="text-gray-400">Tournament Bracket</p>
+          <TournamentBracket tournament={tournament} isOrganizer={isOrganizer} />
         </div>
-
-        <TournamentBracket tournament={tournament} isOrganizer={isOrganizer} />
       </div>
     </>
   )

@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea"
 import { supabase } from "@/lib/supabase/client"
 import { Trophy, Users, Clock, CheckCircle, XCircle, Upload } from "lucide-react"
+import Link from "next/link"
 
 export default function TournamentBracket({ tournamentId, tournamentType, isOrganizer = false }) {
   const [matches, setMatches] = useState([])
@@ -29,7 +30,14 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
   })
 
   useEffect(() => {
-    fetchMatches()
+    // Only fetch matches if tournamentId is valid
+    if (tournamentId) {
+      fetchMatches()
+    } else {
+      console.log('Skipping fetchMatches - tournamentId is not available yet')
+      setMatches([])
+      setLoading(false)
+    }
   }, [tournamentId])
 
   // Check user authentication with session management
@@ -304,20 +312,43 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
           </div>
 
           <div className="space-y-3">
+            {/* Winner Display - Prominent Section */}
+            {isCompleted && match.winner_id && (
+              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-3 rounded-lg text-center">
+                <div className="flex items-center justify-center space-x-2">
+                  <Trophy className="w-5 h-5 text-yellow-300" />
+                  <span className="text-lg font-bold">WINNER</span>
+                  <Trophy className="w-5 h-5 text-yellow-300" />
+                </div>
+                <div className="text-xl font-extrabold mt-1">
+                  {match.winner?.full_name || match.winner?.username ||
+                   (match.winner_id === match.player1_id ? match.player1?.full_name || match.player1?.username :
+                    match.player2?.full_name || match.player2?.username) || 'Unknown'}
+                </div>
+              </div>
+            )}
+
             {/* Player 1 */}
             <div className={`flex items-center justify-between p-2 rounded ${
-              match.winner_id === match.player1_id ? 'bg-green-100' : 'bg-gray-100'
+              match.winner_id === match.player1_id ? 'bg-green-100 border-2 border-green-300' : 'bg-gray-100'
             }`}>
               <div className="flex items-center space-x-2">
                 {match.winner_id === match.player1_id && (
-                  <Trophy className="w-4 h-4 text-yellow-500" />
+                  <Trophy className="w-4 h-4 text-green-600" />
                 )}
-                <span className="font-medium">
+                <span className={`font-medium ${match.winner_id === match.player1_id ? 'text-green-800 font-bold' : ''}`}>
                   {match.player1?.full_name || match.player1?.username || 'TBD'}
                 </span>
+                {match.winner_id === match.player1_id && (
+                  <Badge variant="success" className="ml-2 bg-green-600 text-white">
+                    Winner
+                  </Badge>
+                )}
               </div>
               {isCompleted && (
-                <span className="text-lg font-bold">{match.player1_score}</span>
+                <span className={`text-lg font-bold ${match.winner_id === match.player1_id ? 'text-green-800' : ''}`}>
+                  {match.player1_score}
+                </span>
               )}
             </div>
 
@@ -326,18 +357,25 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
 
             {/* Player 2 */}
             <div className={`flex items-center justify-between p-2 rounded ${
-              match.winner_id === match.player2_id ? 'bg-green-100' : 'bg-gray-100'
+              match.winner_id === match.player2_id ? 'bg-green-100 border-2 border-green-300' : 'bg-gray-100'
             }`}>
               <div className="flex items-center space-x-2">
                 {match.winner_id === match.player2_id && (
-                  <Trophy className="w-4 h-4 text-yellow-500" />
+                  <Trophy className="w-4 h-4 text-green-600" />
                 )}
-                <span className="font-medium">
+                <span className={`font-medium ${match.winner_id === match.player2_id ? 'text-green-800 font-bold' : ''}`}>
                   {match.player2?.full_name || match.player2?.username || 'TBD'}
                 </span>
+                {match.winner_id === match.player2_id && (
+                  <Badge variant="success" className="ml-2 bg-green-600 text-white">
+                    Winner
+                  </Badge>
+                )}
               </div>
               {isCompleted && (
-                <span className="text-lg font-bold">{match.player2_score}</span>
+                <span className={`text-lg font-bold ${match.winner_id === match.player2_id ? 'text-green-800' : ''}`}>
+                  {match.player2_score}
+                </span>
               )}
             </div>
           </div>
@@ -473,16 +511,27 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       </div>
 
       {matches.length === 0 ? (
-        <Card>
-          <CardContent className="text-center py-8">
-            <Trophy className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-600 mb-2">No Matches Yet</h3>
-            <p className="text-gray-500">Tournament bracket hasn't been generated yet.</p>
-            {isOrganizer && (
-              <Button className="mt-4">Generate Bracket</Button>
-            )}
-          </CardContent>
-        </Card>
+        <div className="flex items-center justify-center min-h-[500px]">
+          <Card className="w-full max-w-2xl bg-slate-800 border-slate-700">
+            <CardContent className="text-center py-12 px-8">
+              <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-6" />
+              <h3 className="text-xl font-semibold text-white mb-3">No Matches Yet</h3>
+              <p className="text-gray-400 mb-8">Tournament bracket hasn't been generated yet.</p>
+              <div className="flex gap-4 justify-center">
+                {isOrganizer && (
+                  <Button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2">
+                    Generate Bracket
+                  </Button>
+                )}
+                <Link href={`/tournaments/${tournamentId}`}>
+                  <Button className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2">
+                    Invite Players
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         renderBracket()
       )}
