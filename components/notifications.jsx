@@ -44,7 +44,7 @@ export default function NotificationCenter({ user }) {
   }
 
   const setupRealtimeSubscription = () => {
-    if (!user) return null
+    if (!user || !user.id) return null
 
     return supabase
       .channel('notifications')

@@ -1,81 +1,241 @@
-// Script to reproduce the fetchMatches error in tournament-bracket.jsx
-console.log('🔍 Reproducing fetchMatches Error');
-console.log('=================================');
+/**
+ * Reproduce fetchMatches Error
+ * Test script to isolate and understand the fetchMatches error in tournament-bracket.jsx
+ */
 
-console.log('\n1. Analyzing fetchMatches Function:');
-console.log('==================================');
-console.log('Function: fetchMatches() at line 31-64 in tournament-bracket.jsx');
-console.log('Error location: Line 61 (console.error in catch block)');
-console.log('Actual error likely occurs in the Supabase query (lines 33-55)');
+const { createClient } = require('@supabase/supabase-js')
+const fs = require('fs')
+const path = require('path')
 
-console.log('\n2. Examining Supabase Query Structure:');
-console.log('=====================================');
+// Read environment variables manually from .env.local
+let supabaseUrl, supabaseAnonKey
+try {
+  const envPath = path.join(__dirname, '.env.local')
+  const envContent = fs.readFileSync(envPath, 'utf8')
+  const envLines = envContent.split('\n')
 
-const queryAnalysis = {
-  table: 'matches',
-  select: `
-    *,
-    player1:profiles!matches_player1_id_fkey (id, username, full_name),
-    player2:profiles!matches_player2_id_fkey (id, username, full_name),
-    winner:profiles!matches_winner_id_fkey (id, username, full_name)
-  `,
-  filter: 'tournament_id = tournamentId',
-  ordering: ['round', 'match_number']
-};
+  envLines.forEach(line => {
+    if (line.startsWith('NEXT_PUBLIC_SUPABASE_URL=')) {
+      supabaseUrl = line.split('=')[1].trim().replace(/^["']|["']$/g, '').replace(/\/$/, '')
+    }
+    if (line.startsWith('NEXT_PUBLIC_SUPABASE_ANON_KEY=')) {
+      supabaseAnonKey = line.split('=')[1].trim().replace(/^["']|["']$/g, '')
+    }
+  })
+} catch (error) {
+  console.log('Could not read .env.local file:', error.message)
+}
 
-console.log('Query details:', queryAnalysis);
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('❌ Missing Supabase environment variables')
+  console.log('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? '✓ Set' : '✗ Missing')
+  console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✓ Set' : '✗ Missing')
+  process.exit(1)
+}
 
-console.log('\n3. Potential Issues Analysis:');
-console.log('=============================');
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-console.log('🔍 Foreign Key Reference Issues:');
-console.log('- matches_player1_id_fkey: References profiles table');
-console.log('- matches_player2_id_fkey: References profiles table');
-console.log('- matches_winner_id_fkey: References profiles table');
+async function reproduceFetchMatchesError() {
+  console.log('🔍 Reproducing fetchMatches Error')
+  console.log('=====================================')
 
-console.log('\n🔍 Database Schema Requirements:');
-console.log('From 01-create-tables.sql, matches table should have:');
-console.log('- id (UUID, primary key)');
-console.log('- tournament_id (UUID, foreign key to tournaments)');
-console.log('- round (INTEGER)');
-console.log('- match_number (INTEGER)');
-console.log('- player1_id (UUID, foreign key to profiles)');
-console.log('- player2_id (UUID, foreign key to profiles)');
-console.log('- winner_id (UUID, foreign key to profiles)');
-console.log('- status (TEXT)');
-console.log('- scheduled_at, completed_at, created_at (TIMESTAMP)');
+  // Test with a sample tournament ID
+  const testTournamentId = 1
 
-console.log('\n🔍 Possible Error Causes:');
-console.log('========================');
-console.log('1. Foreign key constraint names mismatch:');
-console.log('   - Query uses: matches_player1_id_fkey');
-console.log('   - But constraint might be named differently');
+  console.log(`📋 Testing fetchMatches query for tournament ID: ${testTournamentId}`)
 
-console.log('\n2. Missing foreign key constraints in database');
-console.log('3. Profiles table doesn\'t exist or has wrong structure');
-console.log('4. Tournament ID parameter is null/undefined');
-console.log('5. Database permissions issue');
+  try {
+    // Test the exact query structure from tournament-bracket.jsx line 101-123
+    console.log('\n1️⃣ Testing the original fetchMatches query...')
 
-console.log('\n🔍 Expected Database Constraints:');
-console.log('=================================');
-console.log('The matches table should have these foreign key constraints:');
-console.log('- player1_id → profiles(id)');
-console.log('- player2_id → profiles(id)');
-console.log('- winner_id → profiles(id)');
-console.log('- tournament_id → tournaments(id)');
+    const { data, error } = await supabase
+      .from('matches')
+      .select(`
+        *,
+        player1:profiles!player1_id (
+          id,
+          username,
+          full_name
+        ),
+        player2:profiles!player2_id (
+          id,
+          username,
+          full_name
+        ),
+        winner:profiles!winner_id (
+          id,
+          username,
+          full_name
+        )
+      `)
+      .eq('tournament_id', testTournamentId)
+      .order('round')
+      .order('match_number')
 
-console.log('\n💡 ROOT CAUSE HYPOTHESIS:');
-console.log('=========================');
-console.log('The error is likely caused by:');
-console.log('1. Incorrect foreign key constraint naming in Supabase query');
-console.log('2. Missing matches or profiles data in database');
-console.log('3. tournamentId parameter being null/undefined');
+    if (error) {
+      console.error('❌ Original query failed:', error)
+      console.error('Error code:', error.code)
+      console.error('Error message:', error.message)
+      console.error('Error details:', error.details)
+      console.error('Error hint:', error.hint)
+    } else {
+      console.log('✅ Original query succeeded')
+      console.log('Matches found:', data?.length || 0)
+      if (data && data.length > 0) {
+        console.log('Sample match:', JSON.stringify(data[0], null, 2))
+      }
+    }
 
-console.log('\n🔧 POTENTIAL FIXES:');
-console.log('===================');
-console.log('1. Add null check for tournamentId parameter');
-console.log('2. Simplify the query to use direct field names instead of constraint names');
-console.log('3. Add better error handling with specific error messages');
-console.log('4. Verify database schema matches expected structure');
+  } catch (error) {
+    console.error('❌ Exception during original query:', error)
+  }
 
-console.log('\nNext: Create a fix for the fetchMatches function');
+  try {
+    // Test 2: Check if matches table exists and has the expected columns
+    console.log('\n2️⃣ Testing matches table structure...')
+
+    const { data, error } = await supabase
+      .from('matches')
+      .select('*')
+      .limit(1)
+
+    if (error) {
+      console.error('❌ Matches table query failed:', error)
+    } else {
+      console.log('✅ Matches table accessible')
+      if (data && data.length > 0) {
+        console.log('Table columns:', Object.keys(data[0]))
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Exception during table structure test:', error)
+  }
+
+  try {
+    // Test 3: Check if profiles table exists and relationships work
+    console.log('\n3️⃣ Testing profiles table relationships...')
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, full_name')
+      .limit(1)
+
+    if (error) {
+      console.error('❌ Profiles table query failed:', error)
+    } else {
+      console.log('✅ Profiles table accessible')
+      if (data && data.length > 0) {
+        console.log('Sample profile:', data[0])
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Exception during profiles test:', error)
+  }
+
+  try {
+    // Test 4: Simplified matches query without joins
+    console.log('\n4️⃣ Testing simplified matches query without joins...')
+
+    const { data, error } = await supabase
+      .from('matches')
+      .select('*')
+      .eq('tournament_id', testTournamentId)
+      .order('round')
+      .order('match_number')
+
+    if (error) {
+      console.error('❌ Simplified query failed:', error)
+    } else {
+      console.log('✅ Simplified query succeeded')
+      console.log('Matches found:', data?.length || 0)
+    }
+
+  } catch (error) {
+    console.error('❌ Exception during simplified query:', error)
+  }
+
+  try {
+    // Test 5: Test with different ordering
+    console.log('\n5️⃣ Testing query with single order clause...')
+
+    const { data, error } = await supabase
+      .from('matches')
+      .select(`
+        *,
+        player1:profiles!player1_id (
+          id,
+          username,
+          full_name
+        ),
+        player2:profiles!player2_id (
+          id,
+          username,
+          full_name
+        ),
+        winner:profiles!winner_id (
+          id,
+          username,
+          full_name
+        )
+      `)
+      .eq('tournament_id', testTournamentId)
+      .order('round')
+
+    if (error) {
+      console.error('❌ Single order query failed:', error)
+    } else {
+      console.log('✅ Single order query succeeded')
+      console.log('Matches found:', data?.length || 0)
+    }
+
+  } catch (error) {
+    console.error('❌ Exception during single order test:', error)
+  }
+
+  try {
+    // Test 6: Test foreign key relationships individually
+    console.log('\n6️⃣ Testing individual foreign key relationships...')
+
+    // Test player1 relationship
+    const { data: player1Data, error: player1Error } = await supabase
+      .from('matches')
+      .select(`
+        id,
+        player1:profiles!player1_id (
+          id,
+          username,
+          full_name
+        )
+      `)
+      .eq('tournament_id', testTournamentId)
+      .limit(1)
+
+    if (player1Error) {
+      console.error('❌ Player1 relationship failed:', player1Error)
+    } else {
+      console.log('✅ Player1 relationship works')
+    }
+
+  } catch (error) {
+    console.error('❌ Exception during foreign key test:', error)
+  }
+
+  console.log('\n🔍 fetchMatches error reproduction completed')
+}
+
+// Run the reproduction script
+if (require.main === module) {
+  reproduceFetchMatchesError()
+    .then(() => {
+      console.log('\n📝 Reproduction script completed')
+      process.exit(0)
+    })
+    .catch(error => {
+      console.error('💥 Script execution failed:', error)
+      process.exit(1)
+    })
+}
+
+module.exports = { reproduceFetchMatchesError }

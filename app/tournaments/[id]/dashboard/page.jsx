@@ -15,6 +15,12 @@ export default function TournamentDashboardPage({ params }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tournamentId, setTournamentId] = useState(null)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
+
+  // Function to refresh dashboard data
+  const refreshDashboardData = () => {
+    setRefreshTrigger(prev => prev + 1)
+  }
 
   // Handle async params resolution
   useEffect(() => {
@@ -160,7 +166,73 @@ export default function TournamentDashboardPage({ params }) {
     }
 
     loadDashboardData()
-  }, [tournamentId, router])
+  }, [tournamentId, router, refreshTrigger])
+
+  // Set up real-time subscription for tournament data changes
+  useEffect(() => {
+    if (!tournamentId) return
+
+    const supabase = createClient()
+
+    // Subscribe to match updates
+    const matchSubscription = supabase
+      .channel('match_updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'matches',
+          filter: `tournament_id=eq.${tournamentId}`
+        },
+        (payload) => {
+          console.log('[Dashboard] Match updated, refreshing data...', payload)
+          refreshDashboardData()
+        }
+      )
+      .subscribe()
+
+    // Subscribe to match results updates
+    const resultSubscription = supabase
+      .channel('match_result_updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'match_results'
+        },
+        (payload) => {
+          console.log('[Dashboard] Match result updated, refreshing data...', payload)
+          refreshDashboardData()
+        }
+      )
+      .subscribe()
+
+    // Subscribe to tournament updates
+    const tournamentSubscription = supabase
+      .channel('tournament_updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tournaments',
+          filter: `id=eq.${tournamentId}`
+        },
+        (payload) => {
+          console.log('[Dashboard] Tournament updated, refreshing data...', payload)
+          refreshDashboardData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      matchSubscription.unsubscribe()
+      resultSubscription.unsubscribe()
+      tournamentSubscription.unsubscribe()
+    }
+  }, [tournamentId])
 
   if (loading) {
     return (
@@ -193,7 +265,13 @@ export default function TournamentDashboardPage({ params }) {
       <Header />
       <div className="min-h-screen bg-slate-900 pt-20 py-12">
         <div className="container mx-auto px-4">
-          <TournamentDashboard tournament={tournament} matchResults={matchResults} disputes={disputes} user={user} />
+          <TournamentDashboard
+            tournament={tournament}
+            matchResults={matchResults}
+            disputes={disputes}
+            user={user}
+            onRefreshData={refreshDashboardData}
+          />
         </div>
       </div>
     </>
