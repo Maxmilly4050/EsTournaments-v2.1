@@ -10,8 +10,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea"
 import { createClient } from "@/lib/supabase/client"
 import { Trophy, Users, Clock, CheckCircle, XCircle, Upload } from "lucide-react"
+<<<<<<< HEAD
 import { toast } from "sonner" // add toast for success/error feedback
 // ... existing code ...
+=======
+import Link from "next/link"
+>>>>>>> 718c315 (Bracket UI fix)
 
 export default function TournamentBracket({ tournamentId, tournamentType, isOrganizer = false }) {
   // Early validation of required props
@@ -56,7 +60,14 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
   // ... existing code ...
 
   useEffect(() => {
-    fetchMatches()
+    // Only fetch matches if tournamentId is valid
+    if (tournamentId) {
+      fetchMatches()
+    } else {
+      console.log('Skipping fetchMatches - tournamentId is not available yet')
+      setMatches([])
+      setLoading(false)
+    }
   }, [tournamentId])
 
   // Check user authentication with session management
@@ -385,7 +396,137 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     })
   }
 
+<<<<<<< HEAD
   // Render tournament bracket organized by rounds
+=======
+  const renderMatch = (match) => {
+    const isCompleted = match.status === 'completed'
+    const isPending = match.status === 'pending'
+    const hasPlayers = match.player1_id && match.player2_id
+
+    return (
+      <Card
+        key={match.id}
+        className={`relative cursor-pointer transition-all duration-200 hover:shadow-md ${
+          isCompleted 
+            ? 'bg-green-50 border-green-200' 
+            : isPending && hasPlayers 
+              ? 'bg-blue-50 border-blue-200' 
+              : 'bg-gray-50 border-gray-200'
+        }`}
+        onClick={() => hasPlayers && openMatchDialog(match)}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-2">
+            <Badge variant={isCompleted ? 'success' : isPending ? 'default' : 'secondary'}>
+              {match.match_type === 'final' ? 'Final' :
+               match.match_type === 'grand_final' ? 'Grand Final' :
+               `Round ${match.round}`}
+            </Badge>
+            <span className="text-sm text-gray-500">Match #{match.match_number}</span>
+          </div>
+
+          <div className="space-y-3">
+            {/* Winner Display - Prominent Section */}
+            {isCompleted && match.winner_id && (
+              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-3 rounded-lg text-center">
+                <div className="flex items-center justify-center space-x-2">
+                  <Trophy className="w-5 h-5 text-yellow-300" />
+                  <span className="text-lg font-bold">WINNER</span>
+                  <Trophy className="w-5 h-5 text-yellow-300" />
+                </div>
+                <div className="text-xl font-extrabold mt-1">
+                  {match.winner?.full_name || match.winner?.username ||
+                   (match.winner_id === match.player1_id ? match.player1?.full_name || match.player1?.username :
+                    match.player2?.full_name || match.player2?.username) || 'Unknown'}
+                </div>
+              </div>
+            )}
+
+            {/* Player 1 */}
+            <div className={`flex items-center justify-between p-2 rounded ${
+              match.winner_id === match.player1_id ? 'bg-green-100 border-2 border-green-300' : 'bg-gray-100'
+            }`}>
+              <div className="flex items-center space-x-2">
+                {match.winner_id === match.player1_id && (
+                  <Trophy className="w-4 h-4 text-green-600" />
+                )}
+                <span className={`font-medium ${match.winner_id === match.player1_id ? 'text-green-800 font-bold' : ''}`}>
+                  {match.player1?.full_name || match.player1?.username || 'TBD'}
+                </span>
+                {match.winner_id === match.player1_id && (
+                  <Badge variant="success" className="ml-2 bg-green-600 text-white">
+                    Winner
+                  </Badge>
+                )}
+              </div>
+              {isCompleted && (
+                <span className={`text-lg font-bold ${match.winner_id === match.player1_id ? 'text-green-800' : ''}`}>
+                  {match.player1_score}
+                </span>
+              )}
+            </div>
+
+            {/* VS Divider */}
+            <div className="text-center text-gray-400 text-sm font-medium">VS</div>
+
+            {/* Player 2 */}
+            <div className={`flex items-center justify-between p-2 rounded ${
+              match.winner_id === match.player2_id ? 'bg-green-100 border-2 border-green-300' : 'bg-gray-100'
+            }`}>
+              <div className="flex items-center space-x-2">
+                {match.winner_id === match.player2_id && (
+                  <Trophy className="w-4 h-4 text-green-600" />
+                )}
+                <span className={`font-medium ${match.winner_id === match.player2_id ? 'text-green-800 font-bold' : ''}`}>
+                  {match.player2?.full_name || match.player2?.username || 'TBD'}
+                </span>
+                {match.winner_id === match.player2_id && (
+                  <Badge variant="success" className="ml-2 bg-green-600 text-white">
+                    Winner
+                  </Badge>
+                )}
+              </div>
+              {isCompleted && (
+                <span className={`text-lg font-bold ${match.winner_id === match.player2_id ? 'text-green-800' : ''}`}>
+                  {match.player2_score}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Match Status */}
+          <div className="mt-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              {isCompleted ? (
+                <CheckCircle className="w-4 h-4 text-green-500" />
+              ) : isPending && hasPlayers ? (
+                <Clock className="w-4 h-4 text-blue-500" />
+              ) : (
+                <XCircle className="w-4 h-4 text-gray-400" />
+              )}
+              <span className="text-sm text-gray-600">
+                {isCompleted
+                  ? 'Completed'
+                  : isPending && hasPlayers
+                    ? 'Pending'
+                    : 'Awaiting Players'
+                }
+              </span>
+            </div>
+
+            {match.completed_at && (
+              <span className="text-xs text-gray-400">
+                {new Date(match.completed_at).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+>>>>>>> 718c315 (Bracket UI fix)
   const renderBracket = () => {
     const rounds = {}
     matches.forEach(match => {
@@ -493,6 +634,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       </div>
 
       {matches.length === 0 ? (
+<<<<<<< HEAD
         <Card>
           <CardContent className="text-center py-8">
             <Trophy className="w-12 h-12 text-gray-400 mx-auto mb-4" />
@@ -503,6 +645,29 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
             )}
           </CardContent>
         </Card>
+=======
+        <div className="flex items-center justify-center min-h-[500px]">
+          <Card className="w-full max-w-2xl bg-slate-800 border-slate-700">
+            <CardContent className="text-center py-12 px-8">
+              <Trophy className="w-16 h-16 text-gray-400 mx-auto mb-6" />
+              <h3 className="text-xl font-semibold text-white mb-3">No Matches Yet</h3>
+              <p className="text-gray-400 mb-8">Tournament bracket hasn't been generated yet.</p>
+              <div className="flex gap-4 justify-center">
+                {isOrganizer && (
+                  <Button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2">
+                    Generate Bracket
+                  </Button>
+                )}
+                <Link href={`/tournaments/${tournamentId}`}>
+                  <Button className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2">
+                    Invite Players
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+>>>>>>> 718c315 (Bracket UI fix)
       ) : (
         renderBracket()
       )}
