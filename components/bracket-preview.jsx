@@ -1,7 +1,159 @@
+"use client"
+
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Trophy, Play, User, Crown, Target } from "lucide-react"
 import Link from "next/link"
+import { SingleEliminationBracket, DoubleEliminationBracket, Match, SVGViewer } from "@g-loot/react-tournament-brackets"
+
+export default function BracketsViewerComponent({ tournamentId, tournamentType, isOrganizer }) {
+  const [matches, setMatches] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  // Fetch matches for the tournament
+  useEffect(() => {
+    let aborted = false
+    async function fetchMatches() {
+      setError("")
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/tournaments/${tournamentId}/matches`, {
+          headers: { "Content-Type": "application/json" },
+        })
+        if (!res.ok) {
+          const text = await res.text().catch(() => "")
+          throw new Error(text || `Failed to load matches (HTTP ${res.status})`)
+        }
+        const data = await res.json()
+        if (!aborted) setMatches(Array.isArray(data) ? data : data?.matches || [])
+      } catch (e) {
+        if (!aborted) setError(typeof e?.message === "string" ? e.message : "Failed to load matches")
+      } finally {
+        if (!aborted) setLoading(false)
+      }
+    }
+    if (tournamentId) fetchMatches()
+    return () => { aborted = true }
+  }, [tournamentId])
+
+  // Transform database matches to @g-loot format
+  const transformMatches = (dbMatches) => {
+    return dbMatches.map((match) => ({
+      id: match.id,
+      name: match.name || `Match ${match.round}-${match.position_in_schedule}`,
+      nextMatchId: match.winner_proceeds_to || null,
+      nextLooserMatchId: match.loser_proceeds_to || null,
+      tournamentRoundText: `Round ${match.round}`,
+      startTime: match.scheduled_for || new Date().toISOString(),
+      state: match.status || 'SCHEDULED',
+      participants: [
+        {
+          id: match.player1_id || 'TBD',
+          name: match.player1_name || 'TBD',
+          isWinner: match.winner_id === match.player1_id,
+          status: match.player1_id ? 'PLAYED' : 'NO_PARTY',
+          resultText: match.player1_score?.toString() || null
+        },
+        {
+          id: match.player2_id || 'TBD',
+          name: match.player2_name || 'TBD',
+          isWinner: match.winner_id === match.player2_id,
+          status: match.player2_id ? 'PLAYED' : 'NO_PARTY',
+          resultText: match.player2_score?.toString() || null
+        }
+      ]
+    }))
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-500/40 bg-red-950/20 p-4 text-red-300">
+        Failed to display bracket: {error}
+      </div>
+    )
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-slate-700 bg-slate-800 p-6 text-center text-slate-300">
+        Loading bracket...
+      </div>
+    )
+  }
+
+  // No matches state
+  if (!matches || matches.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-700 bg-slate-800 p-6 text-center text-slate-300">
+        Bracket not generated yet. Generate it from the dashboard.
+      </div>
+    )
+  }
+
+  const transformedMatches = transformMatches(matches)
+
+  // Custom match component
+  const MatchComponent = ({ match, onMatchClick, topParty, bottomParty, topWon, bottomWon }) => (
+    <div className="match-wrapper bg-white border border-gray-300 rounded p-2 cursor-pointer hover:shadow-md">
+      <div className={`participant ${topWon ? 'winner' : ''} p-1 border-b`}>
+        <span className="font-medium">{topParty.name}</span>
+        {topParty.resultText && <span className="ml-2 text-sm">{topParty.resultText}</span>}
+      </div>
+      <div className={`participant ${bottomWon ? 'winner' : ''} p-1`}>
+        <span className="font-medium">{bottomParty.name}</span>
+        {bottomParty.resultText && <span className="ml-2 text-sm">{bottomParty.resultText}</span>}
+      </div>
+    </div>
+  )
+
+  // Render appropriate bracket type
+  if (tournamentType === 'double_elimination') {
+    // For double elimination, we need to separate upper and lower bracket matches
+    const upperMatches = transformedMatches.filter(match => !match.nextLooserMatchId)
+    const lowerMatches = transformedMatches.filter(match => match.nextLooserMatchId)
+
+    return (
+      <div className="w-full">
+        <DoubleEliminationBracket
+          matches={{ upper: upperMatches, lower: lowerMatches }}
+          matchComponent={MatchComponent}
+          options={{
+            style: {
+              width: 200,
+              boxHeight: 80,
+              canvasPadding: 20,
+              spaceBetweenColumns: 80,
+              spaceBetweenRows: 20
+            }
+          }}
+        />
+      </div>
+    )
+  }
+
+  // Default to single elimination
+  return (
+    <div className="w-full">
+      <SingleEliminationBracket
+        matches={transformedMatches}
+        matchComponent={MatchComponent}
+        options={{
+          style: {
+            width: 200,
+            boxHeight: 80,
+            canvasPadding: 20,
+            spaceBetweenColumns: 80,
+            spaceBetweenRows: 20
+          }
+        }}
+      />
+    </div>
+  )
+}
 
 export function BracketPreview({ tournament }) {
   const participants = tournament.tournament_participants || []
@@ -14,261 +166,176 @@ export function BracketPreview({ tournament }) {
 
   // Seeding logic - assign seeds based on join order or random for preview
   const getSeededParticipants = () => {
-    return participants.map((participant, index) => ({
-      ...participant,
-      seed: index + 1,
-      rating: Math.floor(Math.random() * 100) + 50, // Mock rating for prediction
-      name: participant.profiles?.username || participant.profiles?.full_name || `Player ${index + 1}`,
-    }))
+    if (participants.length === 0) return []
+
+    // Basic seeding by join order
+    const seeded = [...participants].sort((a, b) => {
+      const dateA = new Date(a.joined_at || '1970-01-01')
+      const dateB = new Date(b.joined_at || '1970-01-01')
+      return dateA - dateB
+    })
+
+    return seeded.slice(0, maxParticipants)
   }
 
-  // Generate bracket tree structure
-  const generateBracketTree = () => {
-    const seededParticipants = getSeededParticipants()
-    const bracketSize = Math.pow(2, numRounds)
-    const bracket = []
+  const seededParticipants = getSeededParticipants()
 
-    // Initialize first round with seeded matchups
-    const firstRound = []
-    for (let i = 0; i < bracketSize / 2; i++) {
-      const player1 = seededParticipants[i * 2]
-      const player2 = seededParticipants[i * 2 + 1]
+  // Generate preview bracket structure
+  const generatePreviewBracket = () => {
+    if (seededParticipants.length === 0) return []
 
-      // Calculate win probability based on mock ratings
-      const p1Rating = player1?.rating || 50
-      const p2Rating = player2?.rating || 50
-      const p1WinProb = p1Rating / (p1Rating + p2Rating)
+    const rounds = []
+    let currentRound = [...seededParticipants]
+    let roundNumber = 1
 
-      firstRound.push({
-        id: `match-1-${i}`,
-        round: 1,
-        position: i,
-        player1: player1
-          ? {
-              name: player1.name,
-              seed: player1.seed,
-              id: player1.user_id,
-              winProbability: Math.round(p1WinProb * 100),
-            }
-          : null,
-        player2: player2
-          ? {
-              name: player2.name,
-              seed: player2.seed,
-              id: player2.user_id,
-              winProbability: Math.round((1 - p1WinProb) * 100),
-            }
-          : null,
-        winner: null,
-        status: numParticipants >= 2 ? "pending" : "waiting",
-      })
-    }
-    bracket.push(firstRound)
-
-    // Generate subsequent rounds
-    for (let round = 2; round <= numRounds; round++) {
+    while (currentRound.length > 1) {
+      const nextRound = []
       const roundMatches = []
-      const prevRound = bracket[round - 2]
 
-      for (let i = 0; i < prevRound.length / 2; i++) {
-        roundMatches.push({
-          id: `match-${round}-${i}`,
-          round,
-          position: i,
-          player1: null,
-          player2: null,
-          winner: null,
-          status: "waiting",
-          dependsOn: [prevRound[i * 2].id, prevRound[i * 2 + 1].id],
-        })
+      for (let i = 0; i < currentRound.length; i += 2) {
+        const player1 = currentRound[i]
+        const player2 = currentRound[i + 1] || { id: 'bye', display_name: 'BYE' }
+
+        // Create match
+        const match = {
+          id: `preview-${roundNumber}-${i/2}`,
+          player1,
+          player2,
+          round: roundNumber,
+          position: i / 2
+        }
+
+        roundMatches.push(match)
+
+        // Winner proceeds (for preview, just take first participant)
+        nextRound.push(player1)
       }
-      bracket.push(roundMatches)
+
+      rounds.push({
+        round: roundNumber,
+        matches: roundMatches
+      })
+
+      currentRound = nextRound
+      roundNumber++
     }
 
-    return bracket
+    return rounds
   }
 
-  const bracketTree = generateBracketTree()
-  const hasGeneratedBracket = matches.length > 0
+  const previewBracket = generatePreviewBracket()
 
-  const getRoundName = (round, totalRounds) => {
-    if (round === totalRounds) return "Final"
-    if (round === totalRounds - 1) return "Semi-Final"
-    if (round === totalRounds - 2) return "Quarter-Final"
-    return `Round ${round}`
-  }
-
-  const getMatchStatusColor = (status) => {
-    switch (status) {
-      case "completed":
-        return "border-green-500 bg-green-900/20"
-      case "pending":
-        return "border-yellow-500 bg-yellow-900/20"
-      case "waiting":
-        return "border-slate-600 bg-slate-800/50"
-      default:
-        return "border-slate-600 bg-slate-700"
-    }
+  if (participants.length === 0) {
+    return (
+      <Card>
+        <CardContent className="text-center py-12">
+          <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-gray-600 mb-2">No Participants Yet</h3>
+          <p className="text-gray-500 mb-4">
+            Players need to join the tournament before a bracket can be generated.
+          </p>
+          <Badge variant="outline" className="text-sm">
+            {numParticipants} / {maxParticipants} players
+          </Badge>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
-    <Card className="bg-slate-800 border-slate-700">
-      <CardHeader>
-        <CardTitle className="text-white flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Trophy className="w-5 h-5" />
-            Tournament Bracket
-            {tournament.tournament_type === "single_elimination" && (
-              <Badge variant="outline" className="text-xs">
-                Single Elimination
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Trophy className="w-5 h-5 text-yellow-500" />
+            Tournament Bracket Preview
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex gap-4">
+              <Badge variant="outline" className="flex items-center gap-1">
+                <Users className="w-4 h-4" />
+                {numParticipants} / {maxParticipants} players
               </Badge>
-            )}
-          </div>
-          {hasGeneratedBracket && (
-            <Link href={`/tournaments/${tournament.id}/bracket`}>
-              <Badge className="bg-blue-600 hover:bg-blue-700 cursor-pointer">View Full Bracket</Badge>
-            </Link>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {/* Tournament Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="text-center">
-            <div className="text-lg font-bold text-blue-400">
-              {numParticipants}/{maxParticipants}
+              <Badge variant="outline" className="flex items-center gap-1">
+                <Target className="w-4 h-4" />
+                {numRounds} rounds
+              </Badge>
             </div>
-            <div className="text-gray-400 text-xs">Participants</div>
+            <Badge variant="secondary">Preview Mode</Badge>
           </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-green-400">{numRounds}</div>
-            <div className="text-gray-400 text-xs">Rounds</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-purple-400">{Math.pow(2, numRounds - 1)}</div>
-            <div className="text-gray-400 text-xs">First Round</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-orange-400">
-              {tournament.prize_pool ? tournament.prize_pool.split(" ")[0] : "0"}
-            </div>
-            <div className="text-gray-400 text-xs">Prize Pool</div>
-          </div>
-        </div>
 
-        {/* Bracket Tree Visualization */}
-        <div className="overflow-x-auto">
-          <div className="flex gap-8 min-w-max pb-4">
-            {bracketTree.map((round, roundIndex) => (
-              <div key={roundIndex} className="flex flex-col items-center space-y-4">
-                <h4 className="text-sm font-semibold text-gray-300 mb-2">{getRoundName(roundIndex + 1, numRounds)}</h4>
-                <div className="space-y-6">
-                  {round.map((match, matchIndex) => (
-                    <div key={match.id} className="relative">
-                      <div className={`w-48 p-3 rounded-lg border-2 ${getMatchStatusColor(match.status)}`}>
-                        {/* Player 1 */}
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {match.player1?.seed && (
-                              <Badge variant="outline" className="text-xs px-1 py-0">
-                                {match.player1.seed}
-                              </Badge>
-                            )}
-                            <User className="w-3 h-3 text-gray-400 flex-shrink-0" />
-                            <span className="text-white text-sm truncate">{match.player1?.name || "TBD"}</span>
-                          </div>
-                          {match.player1?.winProbability && (
-                            <span className="text-xs text-blue-400 ml-2">{match.player1.winProbability}%</span>
-                          )}
-                        </div>
-
-                        {/* VS Divider */}
-                        <div className="flex items-center justify-center py-1">
-                          <div className="w-full h-px bg-slate-600"></div>
-                          <span className="px-2 text-xs text-gray-500 bg-slate-800">vs</span>
-                          <div className="w-full h-px bg-slate-600"></div>
-                        </div>
-
-                        {/* Player 2 */}
-                        <div className="flex items-center justify-between mt-2">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {match.player2?.seed && (
-                              <Badge variant="outline" className="text-xs px-1 py-0">
-                                {match.player2.seed}
-                              </Badge>
-                            )}
-                            <User className="w-3 h-3 text-gray-400 flex-shrink-0" />
-                            <span className="text-white text-sm truncate">{match.player2?.name || "TBD"}</span>
-                          </div>
-                          {match.player2?.winProbability && (
-                            <span className="text-xs text-blue-400 ml-2">{match.player2.winProbability}%</span>
-                          )}
-                        </div>
-
-                        {/* Match Status */}
-                        {match.status === "completed" && (
-                          <div className="mt-2 pt-2 border-t border-slate-600">
-                            <div className="flex items-center justify-center gap-1 text-green-400">
-                              <Crown className="w-3 h-3" />
-                              <span className="text-xs">Winner Advances</span>
+          {/* Bracket Visualization */}
+          <div className="border rounded-lg bg-gray-50 p-6 overflow-x-auto">
+            {previewBracket.length > 0 ? (
+              <div className="flex gap-8 min-w-max">
+                {previewBracket.map((round, roundIndex) => (
+                  <div key={round.round} className="space-y-4">
+                    <div className="text-center">
+                      <Badge variant="outline" className="text-xs">
+                        {roundIndex === previewBracket.length - 1 ? 'Final' : `Round ${round.round}`}
+                      </Badge>
+                    </div>
+                    <div className="space-y-6">
+                      {round.matches.map((match) => (
+                        <div key={match.id} className="bg-white rounded border shadow-sm overflow-hidden min-w-[200px]">
+                          <div className="p-3 border-b bg-gray-50">
+                            <div className="text-xs text-gray-500 text-center">
+                              Match {match.position + 1}
                             </div>
                           </div>
-                        )}
-                      </div>
-
-                      {/* Connection Lines to Next Round */}
-                      {roundIndex < bracketTree.length - 1 && (
-                        <div className="absolute top-1/2 -right-4 w-8 h-px bg-slate-600 transform -translate-y-1/2">
-                          <div className="absolute right-0 top-0 w-2 h-2 bg-slate-600 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
+                          <div className="divide-y">
+                            <div className="p-3 hover:bg-gray-50 cursor-pointer">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-sm">
+                                  {match.player1.display_name || match.player1.name || 'Player 1'}
+                                </span>
+                                <Crown className="w-4 h-4 text-yellow-500 opacity-50" />
+                              </div>
+                            </div>
+                            <div className="p-3 hover:bg-gray-50 cursor-pointer">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-sm">
+                                  {match.player2.display_name || match.player2.name || 'Player 2'}
+                                </span>
+                                {match.player2.id !== 'bye' && (
+                                  <Crown className="w-4 h-4 text-gray-300" />
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p>Bracket structure will appear here once tournament starts</p>
+              </div>
+            )}
           </div>
-        </div>
 
-        {/* Bracket Legend */}
-        <div className="mt-6 pt-4 border-t border-slate-700">
-          <div className="flex flex-wrap gap-4 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 border-2 border-green-500 bg-green-900/20 rounded"></div>
-              <span className="text-gray-400">Completed</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 border-2 border-yellow-500 bg-yellow-900/20 rounded"></div>
-              <span className="text-gray-400">In Progress</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 border-2 border-slate-600 bg-slate-800/50 rounded"></div>
-              <span className="text-gray-400">Waiting</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Target className="w-3 h-3 text-blue-400" />
-              <span className="text-gray-400">Win Probability</span>
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <div className="w-2 h-2 bg-white rounded-full"></div>
+              </div>
+              <div>
+                <h4 className="font-medium text-blue-900 mb-1">Preview Information</h4>
+                <p className="text-sm text-blue-700">
+                  This is a preview of how the tournament bracket will be structured.
+                  The actual bracket will be generated when the tournament starts,
+                  with proper seeding and match scheduling.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-
-        {/* Status Message */}
-        <div className="mt-4 text-center">
-          {!hasGeneratedBracket ? (
-            <div className="text-gray-400 text-sm">
-              <Play className="w-4 h-4 inline mr-1" />
-              {numParticipants >= 2
-                ? "Bracket will be generated when tournament starts"
-                : `Need ${2 - numParticipants} more participant${2 - numParticipants === 1 ? "" : "s"} to start`}
-            </div>
-          ) : (
-            <div className="text-green-400 text-sm">
-              <Trophy className="w-4 h-4 inline mr-1" />
-              Tournament bracket is active
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   )
 }

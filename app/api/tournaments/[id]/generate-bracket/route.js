@@ -1,18 +1,20 @@
 import { NextResponse } from 'next/server'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { TournamentBracketGenerator } from '@/lib/tournament/bracket-generator'
 
 export async function POST(request, { params }) {
   try {
-    const supabase = createServerComponentClient({ cookies })
+    const supabase = createRouteHandlerClient({ cookies })
     const { id: tournamentId } = params
 
-    // Get current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    // Get current user session
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const user = session.user
 
     // Get tournament details
     const { data: tournament, error: tournamentError } = await supabase
@@ -35,29 +37,7 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: 'Tournament bracket already generated' }, { status: 400 })
     }
 
-    // Get tournament participants
-    const { data: participants, error: participantsError } = await supabase
-      .from('tournament_participants')
-      .select(`
-        user_id,
-        joined_at,
-        profiles (
-          id,
-          username,
-          full_name
-        )
-      `)
-      .eq('tournament_id', tournamentId)
-
-    if (participantsError) {
-      return NextResponse.json({ error: 'Failed to fetch participants' }, { status: 500 })
-    }
-
-    if (participants.length < 2) {
-      return NextResponse.json({ error: 'Tournament needs at least 2 participants to generate bracket' }, { status: 400 })
-    }
-
-    // Generate bracket
+    // Generate empty bracket structure based on max_participants
     const bracketGenerator = new TournamentBracketGenerator()
     const tournamentConfig = {
       tournament_type: tournament.tournament_type,
@@ -68,9 +48,16 @@ export async function POST(request, { params }) {
       custom_rules: tournament.custom_rules || {}
     }
 
-    const matches = await bracketGenerator.generateTournament(
+    // Use max_participants to generate empty bracket structure
+    const maxParticipants = tournament.max_participants || 8
+
+    if (maxParticipants < 2) {
+      return NextResponse.json({ error: 'Tournament needs at least 2 max participants to generate bracket' }, { status: 400 })
+    }
+
+    const matches = await bracketGenerator.generateEmptyBracket(
       tournamentId,
-      participants,
+      maxParticipants,
       tournamentConfig
     )
 
@@ -90,12 +77,13 @@ export async function POST(request, { params }) {
 
     return NextResponse.json({
       success: true,
-      message: 'Tournament bracket generated successfully',
+      message: 'Empty tournament bracket generated successfully',
       data: {
         tournament_id: tournamentId,
         total_matches: matches.length,
         tournament_type: tournament.tournament_type,
-        participants_count: participants.length
+        max_participants: maxParticipants,
+        bracket_size: bracketGenerator.getNextPowerOfTwo ? bracketGenerator.getNextPowerOfTwo(maxParticipants) : maxParticipants
       }
     })
 

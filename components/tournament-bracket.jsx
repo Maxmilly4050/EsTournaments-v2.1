@@ -152,30 +152,61 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
   }
 
   const generateBracket = async () => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000) // 15s timeout
+
     try {
       setLoading(true)
 
-      const response = await fetch(`/api/tournaments/${tournamentId}/generate-bracket`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
+      const response = await fetch(
+        `/api/tournaments/${tournamentId}/generate-bracket`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          signal: controller.signal,
         }
-      })
+      )
+
+      const status = response.status
+      const contentType = response.headers.get('content-type') || ''
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to generate bracket')
+        // Try to read the body as text once. If it fails, just use status.
+        let message = `Failed to generate bracket (HTTP ${status})`
+        try {
+          const bodyText = await response.text()
+          if (bodyText) {
+            message = `${message}: ${bodyText.slice(0, 500)}`
+          }
+        } catch {
+          // ignore read errors
+        }
+        // Avoid logging Error object directly to prevent Next overlay
+        console.warn('generateBracket error response:', { status, contentType, message })
+        throw new Error(message)
       }
 
-      const result = await response.json()
+      console.debug('generateBracket success:', { status, contentType })
+
       toast.success('Tournament bracket generated successfully!')
 
       // Refresh matches
       await fetchMatches()
     } catch (error) {
-      console.error('Error generating bracket:', error)
-      toast.error(error.message || 'Failed to generate bracket')
+      if (error?.name === 'AbortError') {
+        // Avoid logging Error object directly
+        console.warn('Error generating bracket: request timed out')
+        toast.error('Failed to generate bracket: request timed out')
+      } else {
+        // Avoid logging Error object directly; log message instead
+        console.warn('Error generating bracket:', error?.message || String(error))
+        toast.error(error?.message || 'Failed to generate bracket')
+      }
     } finally {
+      clearTimeout(timeout)
       setLoading(false)
     }
   }
