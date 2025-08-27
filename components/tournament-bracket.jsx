@@ -10,12 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea"
 import { createClient } from "@/lib/supabase/client"
 import { Trophy, Users, Clock, CheckCircle, XCircle, Upload } from "lucide-react"
-<<<<<<< HEAD
 import { toast } from "sonner" // add toast for success/error feedback
-// ... existing code ...
-=======
 import Link from "next/link"
->>>>>>> 718c315 (Bracket UI fix)
 
 export default function TournamentBracket({ tournamentId, tournamentType, isOrganizer = false }) {
   // Early validation of required props
@@ -396,9 +392,6 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     })
   }
 
-<<<<<<< HEAD
-  // Render tournament bracket organized by rounds
-=======
   const renderMatch = (match) => {
     const isCompleted = match.status === 'completed'
     const isPending = match.status === 'pending'
@@ -525,8 +518,6 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       </Card>
     )
   }
-
->>>>>>> 718c315 (Bracket UI fix)
   const renderBracket = () => {
     const rounds = {}
     matches.forEach(match => {
