@@ -53,7 +53,6 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
   const [matchCode, setMatchCode] = useState("") // dedicated state for match code
   const [sendingCode, setSendingCode] = useState(false)
   const supabase = createClient()
-  // ... existing code ...
 
   useEffect(() => {
     // Only fetch matches if tournamentId is valid
@@ -114,266 +113,146 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
 
       if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
         // Re-check authentication when auth state changes
-        const { data: { user } } = await supabase.auth.getUser()
-        setUser(user)
+        checkAuth()
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
-  // ... existing code ...
   const fetchMatches = async () => {
     try {
-      // Add comprehensive safety checks for tournamentId
-      if (!tournamentId || tournamentId === 'undefined' || tournamentId === 'null') {
-        console.warn('Invalid or missing tournament ID, skipping match fetch:', tournamentId)
-        setMatches([])
-        setLoading(false)
-        return
-      }
-
       const { data, error } = await supabase
         .from('matches')
         .select(`
           *,
-          player1:profiles!player1_id (
-            id,
-            username,
-            full_name
-          ),
-          player2:profiles!player2_id (
-            id,
-            username,
-            full_name
-          ),
-          winner:profiles!winner_id (
-            id,
-            username,
-            full_name
-          )
+          player1:profiles!matches_player1_id_fkey(id, username, full_name),
+          player2:profiles!matches_player2_id_fkey(id, username, full_name),
+          winner:profiles!matches_winner_id_fkey(id, username, full_name)
         `)
         .eq('tournament_id', tournamentId)
-        .order('round')
-        .order('match_number')
+        .order('round', { ascending: true })
+        .order('match_number', { ascending: true })
 
       if (error) {
-        console.error('Supabase error details:', error)
-        throw error
+        console.error('Error fetching matches:', error)
+        toast.error('Failed to load matches')
+        return
       }
 
       setMatches(data || [])
-      console.log('[v0] Fetched matches successfully:', data?.length || 0, 'matches')
     } catch (error) {
       console.error('Error fetching matches:', error)
-      // Provide more specific error information
-      if (error.message) {
-        console.error('Error message:', error.message)
-      }
-      if (error.details) {
-        console.error('Error details:', error.details)
-      }
-      // Set empty matches array on error to prevent UI issues
-      setMatches([])
+      toast.error('Failed to load matches')
     } finally {
       setLoading(false)
     }
   }
 
-  // Generate bracket using server-side seeding (for more accurate tournament generation)
   const generateBracket = async () => {
-    if (!isOrganizer || !tournamentId) return
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}/generate-bracket`, {
+      setLoading(true)
+
+      const response = await fetch(`/api/tournaments/${tournamentId}/generate-bracket`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        }
       })
-      const data = await res.json()
-      if (!res.ok || !data.success) {
-        toast.error(data.error || 'Failed to generate bracket')
-        return
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to generate bracket')
       }
-      toast.success('Bracket generated using seeding')
+
+      const result = await response.json()
+      toast.success('Tournament bracket generated successfully!')
+
+      // Refresh matches
       await fetchMatches()
-    } catch (e) {
-      console.error('Generate bracket error:', e)
-      toast.error('Failed to generate bracket')
+    } catch (error) {
+      console.error('Error generating bracket:', error)
+      toast.error(error.message || 'Failed to generate bracket')
+    } finally {
+      setLoading(false)
     }
   }
 
-  // Send match code without affecting results
   const handleSendMatchCode = async () => {
+    if (!matchCode?.trim() || !selectedMatch || !user) return
+
+    setSendingCode(true)
     try {
-      setSendingCode(true)
-
-      if (!user) {
-        toast.error('Please log in to send a match code.')
-        return
-      }
-      if (!selectedMatch || !matchCode.trim()) {
-        toast.error('Enter a valid match code.')
-        return
-      }
-
-      // Identify opponent for notification
-      const isPlayer1 = selectedMatch.player1_id === user?.id
-      const isPlayer2 = selectedMatch.player2_id === user?.id
-      if (!isPlayer1 && !isPlayer2 && !isOrganizer) {
-        toast.error('Only participants can send match codes.')
-        return
-      }
-      const opponentId = isPlayer1 ? selectedMatch.player2_id : selectedMatch.player1_id
-
-      // Hit a dedicated endpoint that stores the code and notifies opponent
-      const res = await fetch(`/api/matches/${selectedMatch.id}/send-code`, {
+      const response = await fetch(`/api/matches/${selectedMatch.id}/room-code`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          match_room_code: matchCode.trim(),
-          opponent_id: opponentId,
+          match_room_code: matchCode.trim()
         }),
       })
-      const data = await res.json()
 
-      if (res.ok && data.success) {
-        toast.success('Match code sent to your opponent.')
-        setSelectedMatch(null)
-        setMatchCode("")
-      } else {
-        toast.error(data.error || 'Failed to send match code.')
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to send match code')
       }
-    } catch (err) {
-      console.error('Send match code error:', err)
-      toast.error('Could not send match code.')
+
+      toast.success('Match code sent successfully!')
+      setSelectedMatch(null)
+      setMatchCode("")
+
+      // Refresh matches to show updated data
+      await fetchMatches()
+    } catch (error) {
+      console.error('Error sending match code:', error)
+      toast.error(error.message || 'Failed to send match code')
     } finally {
       setSendingCode(false)
     }
   }
 
-  // Report results (completely separate from sending code)
-  const handleReportResult = async () => {
+  const handleSubmitResult = async () => {
+    if (!selectedMatch || !resultForm.winner_id) return
+
+    setReportingResult(true)
     try {
-      setReportingResult(true)
-
-      // Check user authentication before making API call
-      if (!user) {
-        alert('You must be logged in to report match results. Please log in and try again.')
-        return
-      }
-
-      // Verify user is participant or organizer
-      const isParticipant = selectedMatch?.player1_id === user?.id || selectedMatch?.player2_id === user?.id
-      if (!isParticipant && !isOrganizer) {
-        alert('You can only report results for matches you are participating in.')
-        return
-      }
-
-      // Enhanced session validation with retry logic
-      try {
-        console.log('Validating session before API call...')
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-
-        // Check if session exists and is still valid
-        if (session && !sessionError) {
-          const expiresAt = new Date(session.expires_at * 1000)
-          const now = new Date()
-          const timeUntilExpiry = expiresAt.getTime() - now.getTime()
-
-          // If session expires within 5 minutes, proactively refresh
-          if (timeUntilExpiry > 5 * 60 * 1000) {
-            console.log('Session is valid, proceeding with API call')
-          } else {
-            console.log('Session expires soon, attempting refresh...')
-            await attemptSessionRefresh()
-          }
-        } else {
-          console.log('No valid session found, attempting refresh...')
-          await attemptSessionRefresh()
-        }
-      } catch (sessionValidationError) {
-        console.error('Session validation failed:', sessionValidationError)
-        handleSessionFailure()
-        return
-      }
-
-      // Helper function to attempt session refresh with retry logic
-      async function attemptSessionRefresh(retryCount = 0) {
-        const maxRetries = 2
-
-        try {
-          console.log(`Session refresh attempt ${retryCount + 1}/${maxRetries + 1}`)
-          const { error: refreshError } = await supabase.auth.refreshSession()
-
-          if (refreshError) {
-            if (retryCount < maxRetries) {
-              console.log('Refresh failed, retrying in 1 second...')
-              await new Promise(resolve => setTimeout(resolve, 1000))
-              return attemptSessionRefresh(retryCount + 1)
-            } else {
-              throw new Error('Session refresh failed after retries')
-            }
-          } else {
-            console.log('Session refreshed successfully')
-          }
-        } catch (refreshError) {
-          console.error('Session refresh error:', refreshError)
-          throw refreshError
-        }
-      }
-
-      // Helper function to handle session failure gracefully
-      function handleSessionFailure() {
-        console.log('All session recovery attempts failed')
-        if (confirm('Your session has expired and could not be refreshed automatically. Would you like to refresh the page to log in again?')) {
-          window.location.reload()
-        }
-      }
-
-      const response = await fetch(`/api/tournaments/matches/${selectedMatch.id}/report-result`, {
+      const response = await fetch(`/api/matches/${selectedMatch.id}/result`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        credentials: 'include',
         body: JSON.stringify({
           winner_id: resultForm.winner_id,
-          player1_score: resultForm.player1_score,
-          player2_score: resultForm.player2_score,
+          player1_score: parseInt(resultForm.player1_score) || 0,
+          player2_score: parseInt(resultForm.player2_score) || 0,
           screenshot_url: resultForm.screenshot_url,
           notes: resultForm.notes,
-        })
+        }),
       })
 
-      const result = await response.json()
-
-      if (result.success) {
-        toast.success('Result submitted for review.')
-        // Refresh matches so Results Management reflects new data (it reads from DB)
-        await fetchMatches()
-        setSelectedMatch(null)
-        setResultForm({
-          winner_id: '',
-          player1_score: 0,
-          player2_score: 0,
-          screenshot_url: '',
-          notes: ''
-        })
-      } else {
-        // Handle specific authentication errors with improved UX
-        if (result.error === 'Authentication failed' || result.error === 'User not authenticated') {
-          if (confirm('Your session has expired. Would you like to refresh the page to log in again?')) {
-            window.location.reload()
-          }
-        } else if (result.error === 'Insufficient permissions') {
-          toast.error('You do not have permission to report results for this match.')
-        } else {
-          toast.error(result.error || 'Failed to report result.')
-        }
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to submit result')
       }
+
+      toast.success('Match result submitted successfully!')
+      setSelectedMatch(null)
+      setResultForm({
+        winner_id: '',
+        player1_score: 0,
+        player2_score: 0,
+        screenshot_url: '',
+        notes: ''
+      })
+
+      // Refresh matches
+      await fetchMatches()
     } catch (error) {
-      console.error('Error reporting result:', error)
-      toast.error('Failed to report result. Please check your internet connection and try again.')
+      console.error('Error submitting result:', error)
+      toast.error(error.message || 'Failed to submit result')
     } finally {
       setReportingResult(false)
     }
@@ -518,6 +397,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       </Card>
     )
   }
+
   const renderBracket = () => {
     const rounds = {}
     matches.forEach(match => {
@@ -604,7 +484,21 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
     )
   }
 
-// ... existing code ...
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Trophy className="w-6 h-6 text-yellow-500" />
+            Tournament Bracket
+          </h2>
+        </div>
+        <div className="text-center py-12">
+          <div className="animate-pulse">Loading bracket...</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -613,12 +507,14 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
           <Trophy className="w-6 h-6 text-yellow-500" />
           Tournament Bracket
         </h2>
-        <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-600">{matches.length} matches</span>
-          {isOrganizer && (
-            <Button variant="outline" onClick={generateBracket} className="ml-2">
-              Generate Bracket
+        <div className="flex items-center gap-4">
+          {isOrganizer && matches.length === 0 && (
+            <Button
+              onClick={generateBracket}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {loading ? 'Generating...' : 'Generate Bracket'}
             </Button>
           )}
         </div>
@@ -633,7 +529,7 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
               <p className="text-gray-400 mb-8">Tournament bracket hasn't been generated yet.</p>
               <div className="flex gap-4 justify-center">
                 {isOrganizer && (
-                  <Button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2">
+                  <Button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2" onClick={generateBracket}>
                     Generate Bracket
                   </Button>
                 )}
@@ -649,8 +545,6 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       ) : (
         renderBracket()
       )}
-
-// ... existing code ...
 
       <Dialog open={selectedMatch !== null} onOpenChange={() => {
         setSelectedMatch(null)
@@ -728,120 +622,73 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
 
               {activeTab === 'report-results' && (
                 <>
-                  {/* Player Names */}
-                  <div className="text-center">
-                    <div className="font-medium">{selectedMatch.player1?.full_name}</div>
-                    <div className="font-medium">{selectedMatch.player2?.full_name}</div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Winner</Label>
-                    <select
-                      value={resultForm.winner_id}
-                      onChange={(e) => setResultForm(prev => ({ ...prev, winner_id: e.target.value }))}
-                      className="w-full p-2 border rounded"
-                    >
-                      <option value="">Select winner</option>
-                      <option value={selectedMatch.player1_id}>
-                        {selectedMatch.player1?.full_name}
-                      </option>
-                      <option value={selectedMatch.player2_id}>
-                        {selectedMatch.player2?.full_name}
-                      </option>
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label>Player 1 Score</Label>
-                      <Input
-                        type="number"
-                        value={resultForm?.player1_score ?? 0}
-                        onChange={(e) => setResultForm(prev => ({ ...prev, player1_score: parseInt(e.target.value) || 0 }))}
-                        min="0"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Player 2 Score</Label>
-                      <Input
-                        type="number"
-                        value={resultForm?.player2_score ?? 0}
-                        onChange={(e) => setResultForm(prev => ({ ...prev, player2_score: parseInt(e.target.value) || 0 }))}
-                        min="0"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Screenshot <span className="text-red-500">*</span></Label>
-                    <div className="relative">
-                      <input
-                        type="file"
-                        accept=".png,.jpg,.jpeg,image/png,image/jpeg"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) {
-                            // Validate file format
-                            const validTypes = ['image/png', 'image/jpeg', 'image/jpg']
-                            if (!validTypes.includes(file.type)) {
-                              alert('Please select a PNG or JPEG image file.')
-                              e.target.value = ''
-                              return
-                            }
-
-                            // For now, we'll store the file name as a placeholder
-                            // In a real implementation, this would upload to storage
-                            const fileUrl = `screenshot_${Date.now()}_${file.name}`
-                            setResultForm(prev => ({ ...prev, screenshot_url: fileUrl }))
-                          } else {
-                            setResultForm(prev => ({ ...prev, screenshot_url: '' }))
-                          }
-                        }}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        id="screenshot-upload"
-                      />
-                      <div className="w-full p-3 border border-gray-300 rounded-md bg-white cursor-pointer hover:bg-gray-50">
-                        <span className="text-gray-700">
-                          {resultForm.screenshot_url ?
-                            `Selected: ${resultForm.screenshot_url.split('_').pop()}` :
-                            'Browse... No file selected.'
-                          }
-                        </span>
+                      <Label>Winner <span className="text-red-500">*</span></Label>
+                      <div className="space-y-2">
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="winner"
+                            value={selectedMatch.player1_id}
+                            checked={resultForm.winner_id === selectedMatch.player1_id}
+                            onChange={(e) => setResultForm({...resultForm, winner_id: e.target.value})}
+                          />
+                          <span>{selectedMatch.player1?.full_name || selectedMatch.player1?.username}</span>
+                        </label>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="winner"
+                            value={selectedMatch.player2_id}
+                            checked={resultForm.winner_id === selectedMatch.player2_id}
+                            onChange={(e) => setResultForm({...resultForm, winner_id: e.target.value})}
+                          />
+                          <span>{selectedMatch.player2?.full_name || selectedMatch.player2?.username}</span>
+                        </label>
                       </div>
                     </div>
-                    <p className="text-sm text-gray-500">
-                      Required: Upload a screenshot in PNG or JPEG format
-                    </p>
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label>Notes (Optional)</Label>
-                    <Textarea
-                      value={resultForm.notes}
-                      onChange={(e) => setResultForm(prev => ({ ...prev, notes: e.target.value }))}
-                      placeholder="Additional notes about the match..."
-                      rows="3"
-                    />
-                  </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Player 1 Score</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={resultForm.player1_score}
+                          onChange={(e) => setResultForm({...resultForm, player1_score: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Player 2 Score</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={resultForm.player2_score}
+                          onChange={(e) => setResultForm({...resultForm, player2_score: e.target.value})}
+                        />
+                      </div>
+                    </div>
 
-                  {/* Authentication Status */}
-                  {authLoading ? (
-                    <div className="text-center p-2">
-                      <span className="text-sm text-gray-500">Checking authentication...</span>
+                    <div className="space-y-2">
+                      <Label>Screenshot URL</Label>
+                      <Input
+                        type="url"
+                        value={resultForm.screenshot_url}
+                        onChange={(e) => setResultForm({...resultForm, screenshot_url: e.target.value})}
+                        placeholder="https://example.com/screenshot.png"
+                      />
                     </div>
-                  ) : !user ? (
-                    <div className="text-center p-2 bg-red-50 border border-red-200 rounded">
-                      <span className="text-sm text-red-600">
-                        You must be logged in to report match results
-                      </span>
+
+                    <div className="space-y-2">
+                      <Label>Notes (Optional)</Label>
+                      <Textarea
+                        value={resultForm.notes}
+                        onChange={(e) => setResultForm({...resultForm, notes: e.target.value})}
+                        placeholder="Any additional notes about the match"
+                      />
                     </div>
-                  ) : (
-                    <div className="text-center p-2 bg-green-50 border border-green-200 rounded">
-                      <span className="text-sm text-green-600">
-                        Authenticated as {user.email}
-                      </span>
-                    </div>
-                  )}
+                  </div>
 
                   <div className="flex gap-2 pt-4">
                     <Button
@@ -852,9 +699,9 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
                       Cancel
                     </Button>
                     <Button
-                      onClick={handleReportResult}
-                      disabled={!resultForm.winner_id || !resultForm.screenshot_url || reportingResult || !user || authLoading}
-                      className="flex-1 bg-gray-700 hover:bg-gray-800"
+                      onClick={handleSubmitResult}
+                      disabled={!resultForm.winner_id || reportingResult}
+                      className="flex-1 bg-green-600 hover:bg-green-700"
                     >
                       {reportingResult ? 'Submitting...' : 'Submit Result'}
                     </Button>
@@ -867,5 +714,4 @@ export default function TournamentBracket({ tournamentId, tournamentType, isOrga
       </Dialog>
     </div>
   )
-// ... existing code ...
 }

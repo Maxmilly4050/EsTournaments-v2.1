@@ -13,332 +13,269 @@ import { Badge } from "@/components/ui/badge"
 import { UserPlus, Users, Send, Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 
-export default function TournamentDashboardPage({ params }) {
-  const router = useRouter()
-  const [tournament, setTournament] = useState(null)
-  const [user, setUser] = useState(null)
-  const [matchResults, setMatchResults] = useState([])
-  const [disputes, setDisputes] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [tournamentId, setTournamentId] = useState(null)
-  const [refreshTrigger, setRefreshTrigger] = useState(0)
+export function TournamentDashboard({ tournament, matchResults, disputes, user, isAdmin = false }) {
+  const [selectedMatch, setSelectedMatch] = useState(null)
+  const [showScreenshots, setShowScreenshots] = useState(false)
+  const [adminDecision, setAdminDecision] = useState("")
+  const [showSettings, setShowSettings] = useState(false)
+  const [currentTournament, setCurrentTournament] = useState(tournament)
+  const [isSeeding, setIsSeeding] = useState(false)
 
   // Function to refresh dashboard data
   const refreshDashboardData = useCallback(async () => {
     // Allow callers to await a full data reload
-    setRefreshTrigger(prev => prev + 1)
+    window.location.reload()
   }, [])
 
-  // Handle async params resolution
-  useEffect(() => {
-    async function resolveParams() {
-      try {
-        // Handle params as promise in Next.js App Router
-        const resolvedParams = await params
-        const id = resolvedParams.id
+  const handleResolveDispute = async (disputeId, decision) => {
+    const supabase = createClient()
+    try {
+      const { error } = await supabase
+        .from('disputes')
+        .update({ status: 'resolved', resolution: decision })
+        .eq('id', disputeId)
 
-        if (id === "create" || isNaN(Number.parseInt(id))) {
-          router.push("/tournaments")
-          return
-        }
+      if (error) throw error
 
-        setTournamentId(id)
-      } catch (error) {
-        console.error("[v0] Failed to resolve params:", error)
-        router.push("/tournaments")
-      }
+      toast.success('Dispute resolved successfully')
+      refreshDashboardData()
+    } catch (error) {
+      console.error('Error resolving dispute:', error)
+      toast.error('Failed to resolve dispute')
     }
+  }
 
-    resolveParams()
-  }, [params, router])
+  const handleInvitePlayer = async (email) => {
+    const supabase = createClient()
+    try {
+      const { error } = await supabase
+        .from('tournament_participants')
+        .insert({
+          tournament_id: currentTournament.id,
+          user_id: null, // Will be filled when user accepts
+          status: 'invited',
+          invited_email: email
+        })
 
-  // Extracted: load all dashboard datasets at once
-  const fetchDashboardData = useCallback(async (id) => {
+      if (error) throw error
+
+      toast.success('Player invited successfully')
+    } catch (error) {
+      console.error('Error inviting player:', error)
+      toast.error('Failed to invite player')
+    }
+  }
+
+  const generateBracket = async () => {
+    setIsSeeding(true)
     const supabase = createClient()
 
     try {
-      const { data: userData, error: userError } = await supabase.auth.getUser()
-      console.log("[v0] Dashboard auth check:", { userData: !!userData?.user, error: userError?.message })
+      const response = await fetch(`/api/tournaments/${currentTournament.id}/generate-bracket`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
 
-      if (userError || !userData?.user) {
-        console.log("[v0] Auth failed, redirecting to login")
-        router.push("/auth/login")
-        return
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to generate bracket')
       }
 
-      const currentUser = userData.user
-      setUser(currentUser)
-
-      // Fetch tournament data
-      const { data: tournamentData, error: tournamentError } = await supabase
-        .from("tournaments")
-        .select(`
-          *,
-          profiles:organizer_id (username, full_name),
-          matches (
-            id,
-            round,
-            match_number,
-            player1_id,
-            player2_id,
-            winner_id,
-            status,
-            player1:player1_id (username, full_name),
-            player2:player2_id (username, full_name)
-          )
-        `)
-        .eq("id", id)
-        .single()
-
-      if (tournamentError) {
-        console.error("[v0] Tournament fetch error:", tournamentError)
-        // Use fallback data
-        setTournament({
-          id,
-          title: `Tournament #${id}`,
-          game: "Sample Game",
-          organizer_id: currentUser.id,
-          status: "ongoing",
-        })
-      } else {
-        setTournament(tournamentData)
-      }
-
-      // Fetch match results
-      const { data: resultsData, error: resultsError } = await supabase
-        .from("match_results")
-        .select(`
-          *,
-          matches (
-            id,
-            round,
-            match_number,
-            tournament_id,
-            player1_id,
-            player2_id,
-            player1:player1_id (username, full_name),
-            player2:player2_id (username, full_name)
-          ),
-          submitted_by:submitted_by_id (username, full_name)
-        `)
-        .eq("matches.tournament_id", id)
-
-      if (resultsError) {
-        console.error("[v0] Results fetch error:", resultsError)
-      } else {
-        setMatchResults(resultsData || [])
-      }
-
-      // Fetch disputes
-      const { data: disputesData, error: disputesError } = await supabase
-        .from("disputes")
-        .select(`
-          *,
-          matches (
-            id,
-            round,
-            match_number,
-            tournament_id,
-            player1:player1_id (username, full_name),
-            player2:player2_id (username, full_name)
-          ),
-          submitted_by:submitted_by_id (username, full_name)
-        `)
-        .eq("matches.tournament_id", id)
-
-      if (disputesError) {
-        console.error("[v0] Disputes fetch error:", disputesError)
-      } else {
-        setDisputes(disputesData || [])
-      }
-
+      toast.success('Tournament bracket generated successfully!')
+      refreshDashboardData()
     } catch (error) {
-      console.error("[v0] Dashboard data fetch error:", error)
-      setError("Failed to load tournament data")
+      console.error('Error generating bracket:', error)
+      toast.error(error.message || 'Failed to generate bracket')
     } finally {
-      setLoading(false)
+      setIsSeeding(false)
     }
-  }, [router])
-
-  // Effect to fetch data when tournamentId changes
-  useEffect(() => {
-    if (tournamentId) {
-      console.log("[v0] Fetching dashboard data for tournament:", tournamentId)
-      fetchDashboardData(tournamentId)
-    }
-  }, [tournamentId, refreshTrigger, fetchDashboardData])
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white">
-        <Header />
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center">Loading tournament dashboard...</div>
-        </div>
-      </div>
-    )
   }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white">
-        <Header />
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center text-red-400">{error}</div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!tournament) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white">
-        <Header />
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center">Tournament not found</div>
-        </div>
-      </div>
-    )
-  }
-
-  const isOrganizer = user && tournament && user.id === tournament.organizer_id
-  const isAdmin = user && user.user_metadata && user.user_metadata.role === 'admin'
-  const canManage = isOrganizer || isAdmin
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
-      <Header />
-      <div className="container mx-auto px-4 py-8">
-        <div className="space-y-6">
-          {/* Tournament Header */}
-          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-3xl font-bold text-white">{tournament.title}</h1>
-                <p className="text-slate-400 mt-1">
-                  {tournament.game} • {tournament.tournament_type || "Single Elimination"}
-                </p>
-              </div>
-              <Badge className={`px-3 py-1 text-sm font-medium rounded-full ${
-                tournament.status === "active" 
-                  ? "bg-green-500/20 text-green-400 border-green-500/30"
-                  : tournament.status === "completed"
-                    ? "bg-gray-500/20 text-gray-400 border-gray-500/30"
-                    : "bg-blue-500/20 text-blue-400 border-blue-500/30"
-              }`}>
-                {tournament.status || "ongoing"}
-              </Badge>
+    <div className="space-y-6">
+      {/* Tournament Header */}
+      <Card className="bg-slate-800 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center justify-between">
+            <span>{currentTournament?.title || 'Tournament Dashboard'}</span>
+            <Badge variant={currentTournament?.status === 'active' ? 'success' : 'secondary'}>
+              {currentTournament?.status || 'Unknown'}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-gray-300">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-sm text-gray-400">Game</p>
+              <p className="font-semibold">{currentTournament?.game || 'N/A'}</p>
             </div>
+            <div>
+              <p className="text-sm text-gray-400">Format</p>
+              <p className="font-semibold">{currentTournament?.tournament_type || 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-400">Participants</p>
+              <p className="font-semibold">
+                {currentTournament?.current_participants || 0}/{currentTournament?.max_participants || 0}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-400">Prize Pool</p>
+              <p className="font-semibold">{currentTournament?.prize_pool || 'N/A'}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-            {canManage && (
-              <div className="flex items-center gap-3">
+      {/* Action Buttons */}
+      <div className="flex gap-4 flex-wrap">
+        {isAdmin && (
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button className="bg-blue-600 hover:bg-blue-700">
+                <UserPlus className="w-4 h-4 mr-2" />
+                Invite Players
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Invite Player</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Input
+                  type="email"
+                  placeholder="Player email"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleInvitePlayer(e.target.value)
+                      e.target.value = ''
+                    }
+                  }}
+                />
                 <Button
-                  onClick={() => router.push(`/tournaments/${tournament.id}/results`)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={(e) => {
+                    const input = e.target.parentElement.querySelector('input')
+                    handleInvitePlayer(input.value)
+                    input.value = ''
+                  }}
+                  className="w-full"
                 >
-                  <Eye className="w-4 h-4 mr-2" />
-                  View Results
-                </Button>
-                <Button
-                  onClick={() => router.push(`/tournaments/${tournament.id}/bracket`)}
-                  variant="outline"
-                  className="border-slate-600 text-slate-300 hover:bg-slate-700"
-                >
-                  View Bracket
+                  <Send className="w-4 h-4 mr-2" />
+                  Send Invitation
                 </Button>
               </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {isAdmin && (
+          <Button
+            onClick={generateBracket}
+            disabled={isSeeding}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            {isSeeding ? 'Generating...' : 'Generate Bracket'}
+          </Button>
+        )}
+      </div>
+
+      {/* Match Results */}
+      <Card className="bg-slate-800 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center justify-between">
+            Recent Match Results
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowScreenshots(!showScreenshots)}
+            >
+              {showScreenshots ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showScreenshots ? 'Hide' : 'Show'} Screenshots
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {matchResults && matchResults.length > 0 ? (
+              matchResults.map((match) => (
+                <div key={match.id} className="p-4 bg-slate-700/50 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white font-medium">
+                      Round {match.round} - Match {match.match_number}
+                    </span>
+                    <Badge variant={match.status === 'completed' ? 'success' : 'secondary'}>
+                      {match.status}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className={`${match.winner_id === match.player1_id ? 'text-green-400 font-semibold' : 'text-gray-300'}`}>
+                      {match.player1?.username || match.player1?.full_name || 'Player 1'}
+                      {match.player1_score !== null && ` (${match.player1_score})`}
+                    </div>
+                    <div className={`${match.winner_id === match.player2_id ? 'text-green-400 font-semibold' : 'text-gray-300'}`}>
+                      {match.player2?.username || match.player2?.full_name || 'Player 2'}
+                      {match.player2_score !== null && ` (${match.player2_score})`}
+                    </div>
+                  </div>
+                  {showScreenshots && match.screenshot_url && (
+                    <div className="mt-2">
+                      <img
+                        src={match.screenshot_url}
+                        alt="Match screenshot"
+                        className="max-w-full h-32 object-contain rounded"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-400 text-center py-8">No match results yet</p>
             )}
           </div>
+        </CardContent>
+      </Card>
 
-          {/* Tournament Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card className="bg-slate-800/50 border-slate-700/50">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Participants
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-400">
-                  {tournament.current_participants || 0}/{tournament.max_participants}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-800/50 border-slate-700/50">
-              <CardHeader>
-                <CardTitle className="text-white">Match Results</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-400">
-                  {matchResults.length}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-800/50 border-slate-700/50">
-              <CardHeader>
-                <CardTitle className="text-white">Active Disputes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-400">
-                  {disputes.filter(d => d.status === "open").length}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Recent Activity */}
-          <Card className="bg-slate-800/50 border-slate-700/50">
-            <CardHeader>
-              <CardTitle className="text-white">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {matchResults.slice(0, 5).map((result, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
-                    <div>
-                      <div className="text-white font-medium">
-                        Match Result Submitted
-                      </div>
-                      <div className="text-sm text-slate-400">
-                        Round {result.matches?.round} • Match #{result.matches?.match_number}
-                      </div>
-                    </div>
-                    <Badge variant="outline">
-                      {new Date(result.created_at).toLocaleDateString()}
-                    </Badge>
+      {/* Disputes Section */}
+      {isAdmin && disputes && disputes.length > 0 && (
+        <Card className="bg-slate-800 border-slate-700">
+          <CardHeader>
+            <CardTitle className="text-white">Pending Disputes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {disputes.map((dispute) => (
+                <div key={dispute.id} className="p-4 bg-slate-700/50 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white font-medium">
+                      Match {dispute.match?.match_number} Dispute
+                    </span>
+                    <Badge variant="destructive">{dispute.status}</Badge>
                   </div>
-                ))}
-
-                {disputes.slice(0, 3).map((dispute, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-red-900/20 rounded-lg">
-                    <div>
-                      <div className="text-white font-medium">
-                        Dispute Raised
-                      </div>
-                      <div className="text-sm text-slate-400">
-                        {dispute.reason.substring(0, 50)}...
-                      </div>
-                    </div>
-                    <Badge variant="destructive">
-                      {dispute.status}
-                    </Badge>
+                  <p className="text-gray-300 text-sm mb-3">{dispute.description}</p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleResolveDispute(dispute.id, 'approved')}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleResolveDispute(dispute.id, 'rejected')}
+                    >
+                      Reject
+                    </Button>
                   </div>
-                ))}
-
-                {matchResults.length === 0 && disputes.length === 0 && (
-                  <div className="text-center text-slate-400 py-8">
-                    No recent activity
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
