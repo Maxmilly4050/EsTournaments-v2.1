@@ -75,7 +75,8 @@ export function TournamentDashboard({ tournament, matchResults, disputes, user, 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        credentials: 'include'
       })
 
       if (!response.ok) {
